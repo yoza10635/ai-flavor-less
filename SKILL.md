@@ -62,7 +62,7 @@ python scripts/check.py [--profile=通用|网文] [--out-dir=报告目录] 文�
 python scripts/check.py --calibrate 基线1.md 基线2.md ...
 ```
 
-校准结果只打印不自动写回。人工确认后写入 `profiles.yaml`（放在**当前工作目录**、skill 根目录或 scripts/ 下均可，按此顺序查找）即可覆盖内置默认阈值，格式参照 `references/profiles.example.yaml`。
+校准结果只打印不自动写回，末尾附**可直接粘贴的 yaml 片段**。人工确认后存为 `profiles/<体裁名>.yaml`（每体裁一个文件，顶层键 = profile 名，只写差异项，其余继承"通用"基底）即可覆盖内置默认阈值；旧版单文件 `profiles.yaml` 仍兼容（当前工作目录 → skill 根目录 → scripts/ 顺序查找）。格式与加载规则见 `references/profiles.example.yaml`。
 
 ## 六层检测速览
 
@@ -93,7 +93,7 @@ python scripts/check.py --cross-chapter 章节1.md 章节2.md ...   # 或传目�
 2. **先试跑单章**：`python scripts/check.py --profile=<profile> 章节.md`，确认报告生成正常（缺依赖先装）。
 3. **批量 + 汇总**：对全书/多章一次性传入，利用结尾汇总对比表定位问题最重的章节。
 4. **读报告出结论**：向用户汇报时优先讲 flags 汇总行与重复骨架簇示例（这是修改抓手），逐条 L0 命中作为证据引用，不要把整份报告贴给用户。
-5. **阈值不满意时校准**：拿已通过的基线章节跑 `--calibrate`，把建议阈值写入 `profiles.yaml` 后复跑。
+5. **阈值不满意时校准**：拿已通过的基线章节跑 `--calibrate`，把末尾输出的 yaml 片段确认后存为 `profiles/<体裁名>.yaml`，复跑即生效。
 
 ## 注意
 
@@ -101,4 +101,4 @@ python scripts/check.py --cross-chapter 章节1.md 章节2.md ...   # 或传目�
 - 半角标点会被自动归一化为全角；md 的 `#` 标题行、`>` 引用行、分隔线不进入统计。
 - jieba 首次标注较慢，长文本属正常；同一句子的标注有 TokCache 缓存，L0/L1/L2 共享。
 - 检测是**统计信号不是定论**：flags 多 = 疑似 AI 味，需结合上下文判断；通用 profile 下长链'的'只展示不判 flag。
-- 修改 `profiles.yaml` 前先 `cp profiles.yaml profiles.yaml.bak`；`references/profiles.example.yaml` 是示例，不会被加载（只有 `profiles.yaml` 生效）。
+- 修改体裁参数前备份对应 `profiles/<体裁名>.yaml`；`references/profiles.example.yaml` 是结构说明，不会被加载（生效的是 `profiles/*.yaml` 或兼容的旧版单文件 `profiles.yaml`）。

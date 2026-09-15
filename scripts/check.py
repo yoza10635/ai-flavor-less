@@ -747,6 +747,7 @@ def calibrate(files):
     print()
     print("指标 | 均值 | σ | 建议阈值 | 方向")
     high_good = {"平均σ", "平均MSSD"}  # 越大越好，低于阈值报警
+    thresh_of = {}
     for k in keys:
         vals = [r[k] for r in rows]
         mean = statistics.mean(vals)
@@ -760,8 +761,21 @@ def calibrate(files):
         if k == "章CV":
             direct += "（指标②；注意本语料方向=高→关注，勿继承英文工具的低→AI 假设）"
         print(f"{k} | {mean:.3f} | {sd:.3f} | {thresh:.3f} | {direct}")
+        thresh_of[k] = thresh
+    # 输出可直接粘贴的 yaml 片段（不自动写文件，人工确认后粘贴到 profiles/<体裁名>.yaml）
+    # 映射：仅含 profile 实际支持阈值键的指标；σ/MSSD 仅展示不作判据，故不输出。
+    yaml_key_map = {
+        "重复句占比": "rep_ratio", "堆叠": "stack_thresh", "'的'密度": "de_density_thresh",
+        "破折号": "dash_thresh", "章CV": "cv_thresh", "模板命中": "tpl_thresh",
+        "对话标签": "tag_thresh", "3-4句段占比": "mid_ratio_thresh",
+    }
+    snippet = {yk: round(thresh_of[k], 4) for k, yk in yaml_key_map.items() if k in thresh_of}
+    print("\n可直接粘贴的 yaml 片段（人工确认后存为 profiles/<体裁名>.yaml）：")
+    print("<体裁名>:")
+    for k, v in snippet.items():
+        print(f"  {k}: {v}")
     print()
-    print("提示：校准结果供人工参考，确认后写入 profiles.yaml 生效。")
+    print("提示：校准结果供人工参考，确认后写入 profiles/<体裁名>.yaml 生效；阈值不跨语料迁移。")
 
 def summarize(title, paras, l0, tpl, l1, bl, reps, runs, l3, profile, cfg):
     sents = sum(len(split_semantic_sents(p)) for p in paras)
