@@ -32,9 +32,11 @@ agent_created: true
 
 ## 依赖
 
-首次运行前检查并安装 Python 依赖：
+首次运行前检查并安装 Python 依赖（分发包内含 `requirements.txt` 时优先用它）：
 
 ```bash
+pip install -r requirements.txt
+# 包内无 requirements.txt 时的等价命令：
 pip install jieba jinja2 pyyaml
 ```
 
