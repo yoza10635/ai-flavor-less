@@ -1,6 +1,6 @@
 # profiles.yaml 配置示例
 #
-# 用法：把本文件复制为 profiles.yaml，放到【当前工作目录】、skill 根目录或 scripts/ 下
+# 用法：把本文件复制为 profiles.yaml，放到【当前工作目录】、仓库根目录或 scripts/ 下
 # （脚本按此顺序查找，第一个存在者生效）。只写想覆盖的键即可，未写的用内置默认。
 #
 # 校准方法：python scripts/check.py --calibrate 已通过基线1.md 基线2.md ...
@@ -21,15 +21,14 @@
 #   tpl_thresh    模板词对命中总数阈值
 #   rep_ratio     重复骨架句占全句比例阈值
 #   cv_thresh     章级句长 CV 上限（宪章指标②，越高越关注；null=只报不 flag）。
-#                 取代原 sigma_thresh——原始σ漂移 r=-0.771 不可用，σ 仅在报告展示不作判据。
-#                 用 --calibrate <已评审章节...> 得基线 CV 后手填（如 0.721+2σ）。
-#   sigma_thresh  [已退役/过渡保留] 段落σ均值下限；填了仍会 flag（标"仅展示"），建议删除本键改用 cv_thresh
+#                 原始 σ 不作判据（与篇幅强相关、漂移主导），报告仅展示平均σ。
+#                 用 --calibrate <已评审章节...> 得基线 CV 后手填（均值+2σ）。
 #   de_density_thresh  '的'密度上限（每百字）
 #   tag_thresh    对话标签占比上限
 #   mid_ratio_thresh  3-4句段占比上限
 #   stack_thresh  词性堆叠行数上限
 
-# 示例：按网文基线校准后的自定义阈值（cv_thresh 来自 A 组 10 章 --calibrate 均值0.721+2σ）
+# 示例：按基线校准后的自定义阈值（cv_thresh = 基线章节 --calibrate 的均值+2σ）
 网文:
   tpl_thresh: 4
   rep_ratio: 0.05

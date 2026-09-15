@@ -1,34 +1,38 @@
 # -*- coding: utf-8 -*-
 """
-句式指纹检测器 v1.1 —— 双层架构（统计核心 + 文体 profile）
+句式指纹检测器 —— 双层架构（统计核心 + 文体 profile）
 
-L0 句内结构：'的'链/顿号并列/词性堆叠/'是…的'句（宪章：可读性层，与 AI 味弱相关）
-L0.5 模板标点：句式模板词对（半同构）+ 标点密度指纹（强化"复现"部分）
-L1 词层    ：新信息率、句首/句末词分布、高频 3-gram 复现（辅助）
-L1.5 规范清单：AI 高频词/情绪直写/对话标签/系统数据行（时敏层，仅提示，宪章§3.3）
-L2 句法层  ：POS 骨架指纹（清洗后）全文倒排 → 重复簇 + 排比簇（归指标①）
-L3 节奏层  ：章级句长 CV=σ/mean（指标②）+ 段内 MSSD/短句密度（σ 仅展示不作判据）
-XC 跨章装置：--cross-chapter 结尾段 4-gram 跨章复用（指标①，定位型，AUC 0.718★）
+本体论与判据规格见仓库根 ONTOLOGY.md（宪章）。本脚本是其 §3「方法论」的实现：
+  指标① 出现频率   L2 句法骨架倒排（章内） + --cross-chapter 结尾段 4-gram（跨章，定位型）
+  指标② 标准化方差 L3 章级句长 CV = σ/mean（cv_thresh，方向自定：高 → 关注）
+  指标③ 信息密度   —— 已退役（句对级操作化证伪，ONTOLOGY §3.4），本脚本无实现
+  合取判据          ①+② 2/2 制（1/2 提示、2/2 关注；工具侧计数输出待实现）
+
+辅助层（宪章 §3.3 定性，不进合取）：
+  L0 句内结构   '的'链/顿号并列/词性堆叠/'是…的'（可读性层，与 AI 味弱相关）
+  L0.5 模板标点 句式模板词对复现 + 标点密度
+  L1 词层      新信息率、句首/句末词分布、高频 3-gram
+  L1.5 规范清单 违禁词/情绪直写/对话标签/系统数据行（时敏层，仅提示，需 profile 开启）
 
 用法：
-    python scripts/check.py [--profile=通用|网文] [--out-dir=reports] 文件 [文件 ...]
-    python scripts/check.py --calibrate <基线文件...>        # 均值±2σ 校准建议阈值
-    python scripts/check.py --cross-chapter <文件...>        # 跨章装置报告（指标①）
-    python scripts/check.py --profile=网文 05-正文/ch006_残方.md
+    python scripts/check.py [--profile=通用|网文] [--out-dir=DIR] 文件 [文件 ...]
+    python scripts/check.py --calibrate <基线文件...>     # 均值±2σ 校准建议阈值（不自动写回）
+    python scripts/check.py --cross-chapter <文件...>     # 跨章装置报告（指标①，≥2 章）
 
 支持格式：.md / .txt / 无扩展名文本 / .docx（Word）。
     纯文本编码按 utf-8 → gbk → latin-1 自动回退；docx 仅读正文（表格按行合并，
     页眉页脚/批注/脚注不计入统计）。
 
 配置：
-    profiles.yaml（按 当前工作目录 → skill 根目录 → scripts/ 顺序查找，存在则覆盖内置默认；
+    profiles.yaml（按 当前工作目录 → 仓库根 → scripts/ 顺序查找，存在则覆盖内置默认；
     可用 --calibrate 校准后手写）。
     报告模板：report_template.md.j2（jinja2，默认在 assets/ 下，也可放脚本同目录）。
 
-说明：
+实现注记：
     - POS 标注经 TokCache 缓存，L0/L1/L2 共享，同一句子只标注一次。
-    - 骨架清洗：去功能词（的/了/地）与停顿标点，保留 EOS/QT 结构锚点。
-    - "叙事意图段"初版用自然段落近似；后续可扩展传入场景卡边界。
+    - 骨架清洗：去结构助词与停顿标点，保留 EOS/QT 结构锚点。
+    - CV 公式与章内 n-gram 统计骨架参考 lmscan v0.6.1（Apache-2.0, github.com/stef41/lmscan），
+      判据方向按本语料实测自定，未复制其词表与英文分词假设（详见 references/lmscan-feature-audit.md）。
 """
 
 import sys
@@ -72,8 +76,8 @@ SENT_END_KEEP = "了着的过啊呢吧吗呀嘛罢哦嗯唉"
 OUT_DIR = None
 
 # 文体配置：通用模式只做统计核心 + 文本内相对异常判断（不依赖文体先验）；
-# 网文模式叠加本项目创作规范的专属规则（黑名单/对话标签/系统数据行/绝对阈值）。
-# 若存在 profiles.yaml（与脚本同目录）则加载覆盖（用户可手改或用 --calibrate 校准）。
+# 网文模式叠加网文创作规范的专属规则（黑名单/对话标签/系统数据行/绝对阈值）。
+# 若存在 profiles.yaml 则加载覆盖（用户可手改或用 --calibrate 校准）。
 DEFAULT_PROFILES = {
     "通用": {
         "banlist": False,      # 不判黑名单词（"不禁"在文学文本是正常表达）
@@ -315,7 +319,8 @@ def l_tpl_punct(paras):
 
 # ---------------------------------------------------------------- L1.5 规范清单
 
-# AI痕迹检查清单里可自动化的项（04-创作规范/AI痕迹检查清单.md + 风格规则.md E节）
+# L1.5 规范清单（时敏层，见 ONTOLOGY §3.3）：网文创作规范中可自动化的项。
+# ⚠️ 词表为特定时期的模型套话，公开即失效——仅作提示，不进合取判据；更新走语料自动诱导。
 BAN_WORDS = [
     "不禁", "忍不住", "心中暗道", "眼中闪过一抹精光", "涌上心头",
     "在当今社会", "随着时代的发展", "众所周知", "总而言之", "心中一动",
@@ -603,12 +608,11 @@ def l2_skeletons(sents_all, tok_cache=None):
 
 
 # ---------------------------------------------------------------- L3 节奏层
-# 宪章指标② =「标准化方差」：判据用 CV = σ/mean，不用原始 σ。
-# 依据（references/../../.workbuddy 实测记录 2026-09-15）：原始 σ 漂移 r=-0.771 且
-# 已知装置命中率 AUC 0.521（不可用）；章级 CV 漂移 r=-0.081（唯一抗漂移）、AUC 0.706★。
-# CV 公式与 lmscan sentence_length_variance 同型（std/mean），参考实现 lmscan v0.6.1
-# (Apache-2.0, github.com/stef41/lmscan)；**方向按本语料自定：高 CV → 关注**
-# （A 0.660 → C 0.704；不继承 lmscan 的 low_is_ai——那依赖英文说明文节奏假设）。
+# 宪章指标② =「标准化方差」：判据用 CV = σ/mean，不用原始 σ（σ 与句长均值强相关，
+# 篇幅变化会污染判据；CV 消除之）。公式与 lmscan sentence_length_variance 同型
+# （参考实现 lmscan v0.6.1, Apache-2.0, github.com/stef41/lmscan）。
+# **方向按本语料实测自定：高 CV → 关注**（不继承 lmscan 的 low_is_ai——那依赖英文说明文节奏假设；
+# 中英文探测差异与阈值自定教训见 references/lmscan-feature-audit.md）。
 
 
 def sent_cv(lens):
@@ -768,12 +772,10 @@ def summarize(title, paras, l0, tpl, l1, bl, reps, runs, l3, profile, cfg):
         flags.append(f"顿号并列'的'×{len(l0['de_sto'])}")
     # ---- 文体层（banlist 开启的 profile）：项目规范规则 ----
     if cfg.get("banlist"):
-        # 宪章指标②：判据用章级 CV（高 → 关注；本语料 A 0.660 → C 0.704，方向自定）。
-        # 原「节奏偏匀」σ 判据废弃：σ 漂移 r=-0.771、命中 AUC 0.521，实测不可用（ONTOLOGY §3.1）。
+        # 宪章指标②：判据用章级 CV（高 → 关注；本语料实测方向，见 L3 段注释）。
+        # 原始 σ 不作判据（实测漂移主导，ONTOLOGY §3.1），仅作平均σ统计值展示。
         if cfg.get("cv_thresh") and cv > cfg["cv_thresh"]:
             flags.append(f"句长方差漂移(CV {cv:.2f})")
-        if cfg.get("sigma_thresh") and avg_std < cfg["sigma_thresh"]:
-            flags.append(f"σ偏低(仅展示:{avg_std:.1f})")  # 过渡期保留，profiles.yaml 删除键即停用
         if cfg.get("dash_thresh") and tpl["punct"].get("破折号", 0) > cfg["dash_thresh"]:
             flags.append(f"破折号{tpl['punct']['破折号']:.1f}")
         if l0["density"] > cfg.get("de_density_thresh", 6):
@@ -808,90 +810,6 @@ class TokCache:
         if key not in self._c:
             self._c[key] = pos_tag(s, normalize_pn)
         return self._c[key]
-
-
-# ---------------------------------------------------------------- L4 信息密度（已退役·遗址）
-# ⚠️ 2026-09-15 退役：40 对盲判复核（references/indicator-3-manual-review.md）判③句对级不可操作化——
-#   总体精确率 7.5%（A 误报 90%、C 确认 5%）。对偶型零命中系**象限定反**（"换词不换句式"是对偶修辞签名，
-#   非车轱辘话；真车轱辘话=同词复述，全在重叠型），但镜像象限 rephrase 实验（validation.md §5c）证明
-#   **根因是粒度错不是象限错**：正常修辞与车轱辘话在相邻句对级结构不可分（"萧嫣站起来收碗/叶瑶也站起来"
-#   与真阳性同档位），裁决依赖指称同一性等语篇事实。宪章 ③降级为开放项（现象保留、判据摘除），
-#   合取改 ①+② 2/2 制。本函数仅 --density CLI 保留作实验复现，不进任何报告/汇总/flag。
-#
-# 原设计（2026-09-15 上午）：对偶 para = 「换词不换句式」（jac≤0.25 且 psim≥0.70）；
-#   重叠 echo = 「同词复读」（jac≥0.20）。DMIN_CONTENT=3 硬底线防碎片短句代理（参数网格教训保留）。
-
-DPOS_SIM = 0.70        # 对偶型：骨架编辑相似度阈值
-DCONTENT_J = 0.25      # 对偶型：实词 Jaccard 上限（重合超过它就不算"换词"）
-DJAC_ECHO = 0.20       # 重叠型：相邻句实词 Jaccard 下限（同词反复；76章扫描 AUC0.86/漂移+0.30）
-DLEN_RATIO = 0.5       # 句长比下限（两型共用；排除长短悬殊误配）
-DMIN_CONTENT = 3       # 参与配对的最少实词数（<3 会退化为短句碎片代理，扫描证实漂移劫持）
-DWINDOW = 2            # 只在段内相邻 ±2 句内找对（车轱辘话是局部现象）
-
-
-def _pos_sim(a, b):
-    """POS 序列编辑相似度 = 1 - lev/max(len)。序列短（≤30），DP 足够快。"""
-    la, lb = len(a), len(b)
-    if la == 0 or lb == 0:
-        return 0.0
-    prev = list(range(lb + 1))
-    for i in range(1, la + 1):
-        cur = [i] + [0] * lb
-        ai = a[i - 1]
-        for j in range(1, lb + 1):
-            cur[j] = min(prev[j] + 1, cur[j - 1] + 1,
-                         prev[j - 1] + (ai != b[j - 1]))
-        prev = cur
-    return 1.0 - prev[lb] / max(la, lb)
-
-
-def l4_density(paras, tok_cache=None):
-    """【已退役·仅 --density 复现用】信息密度双型（指标③旧试验位）。
-
-    2026-09-15 复核退役：40 对盲判总体精确率 7.5%，句对级不存在车轱辘话签名
-    （validation.md §5b/§5c）。不进报告/汇总/calibrate。
-    para = 对偶型「换词不换句式」（jac≤0.25 且 psim≥0.70）；
-    echo = 重叠型「同词反复」（jac≥0.20）。
-    返回 {para_rate, echo_rate, para, echo, examples, n_sents}。
-    """
-    para_ex, echo_ex = [], []
-    n_sents = 0
-    for pi, para in enumerate(paras):
-        sents = split_semantic_sents(para)
-        info = []  # (句号, POS序列, 实词set, 字符长, 原文)
-        for si, s in enumerate(sents):
-            toks = tok_cache.get(s) if tok_cache else pos_tag(s)
-            pos_seq = [p for _, p in toks if p not in FUNC_POS and p not in PUN_DROP]
-            content = {w for w, p in toks if p.startswith(CONTENT_POS) and w not in PUNCT}
-            info.append((si, pos_seq, content, len(s), s))
-            n_sents += 1
-        for a in range(len(info)):
-            _, seq_a, con_a, len_a, txt_a = info[a]
-            if len(con_a) < DMIN_CONTENT:
-                continue
-            for b in range(a + 1, min(a + 1 + DWINDOW, len(info))):
-                _, seq_b, con_b, len_b, txt_b = info[b]
-                if len(con_b) < DMIN_CONTENT:
-                    continue
-                lr = min(len_a, len_b) / max(len_a, len_b, 1)
-                if lr < DLEN_RATIO:
-                    continue
-                jac = len(con_a & con_b) / len(con_a | con_b)
-                if jac <= DCONTENT_J:
-                    sim = _pos_sim(seq_a, seq_b)
-                    if sim >= DPOS_SIM:
-                        para_ex.append({"para": pi + 1, "s1": txt_a, "s2": txt_b,
-                                        "jac": round(jac, 2), "sim": round(sim, 2)})
-                        continue
-                if jac >= DJAC_ECHO:
-                    echo_ex.append({"para": pi + 1, "s1": txt_a, "s2": txt_b,
-                                    "jac": round(jac, 2)})
-    chars = sum(len(p) for p in paras) or 1
-    k = chars / 1000
-    return {"para": len(para_ex), "echo": len(echo_ex),
-            "para_rate": len(para_ex) / k, "echo_rate": len(echo_ex) / k,
-            "examples": para_ex[:6] + [{**e, "sim": None} for e in echo_ex[:6]],
-            "n_sents": n_sents}
 
 
 # ---------------------------------------------------------------- 跨章装置（指标①）
@@ -974,33 +892,6 @@ def cross_chapter(files, out_dir):
     print(f"✔ 完整报告 → {out_path}")
 
 
-def density_report(files):
-    """--density：【遗址】指标③双型章级速率表——③已退役（2026-09-15），仅供实验复现，不进报告。"""
-    rows = []
-    for fp in files:
-        if not os.path.exists(fp):
-            print(f"跳过：{fp} 不存在")
-            continue
-        title, paras = read_chapter(fp)
-        m = re.search(r"ch(\d+)", os.path.basename(fp))
-        ch = int(m.group(1)) if m else -1
-        cache = TokCache()
-        d = l4_density(paras, cache)
-        cv = chapter_cv(paras)
-        rows.append((ch, title, d["para_rate"], d["echo_rate"], d["n_sents"], cv))
-    rows.sort()
-    print("章 | 标题 | 对偶率(对/千字) | 重叠率(对/千字) | 语义句 | 章CV")
-    print("--- | --- | --- | --- | --- | ---")
-    for ch, t, pr, er, ns, cv in rows:
-        print(f"ch{ch:03d} | {t} | {pr:.2f} | {er:.2f} | {ns} | {cv:.3f}")
-    if len(rows) > 2:
-        import statistics
-        prs = [r[2] for r in rows]; ers = [r[3] for r in rows]
-        print(f"\n合计 {len(rows)} 章")
-        print(f"对偶率 均值 {statistics.mean(prs):.2f} σ {statistics.stdev(prs):.3f}")
-        print(f"重叠率 均值 {statistics.mean(ers):.2f} σ {statistics.stdev(ers):.3f}")
-
-
 def main():
     global OUT_DIR
     args = sys.argv[1:]
@@ -1017,9 +908,6 @@ def main():
     PROFILES = load_profiles()
     if "--cross-chapter" in args:
         cross_chapter(files, OUT_DIR)
-        return
-    if "--density" in args:
-        density_report(files)
         return
     if "--calibrate" in args:
         calibrate(files)
