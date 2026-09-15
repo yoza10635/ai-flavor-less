@@ -5,6 +5,13 @@
 
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [Unreleased]
+
+### Added
+- 跨体裁外部语料测试档案（`references/cross-genre-external-test.md` +
+  `references/external-corpus-summary.csv`）：新闻/知乎/学术各 5 篇的聚合指标；
+  合取判据下学术 0/5 升级；含真值未核验声明与选择偏差局限。
+
 ## [0.1.0] - 2026-09-16
 
 首个公开版本。方法论在 2026-09-15 定稿（宪章确立 + 合取制收敛为 2/2），此后进入对外维护阶段。

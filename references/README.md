@@ -10,7 +10,7 @@
 |---|---|
 | [detection-layers.md](detection-layers.md) | 六层检测的指标细节、报告各节数据结构、阈值语义与归因互斥规则 |
 | [cross-chapter-phrase-cloud.md](cross-chapter-phrase-cloud.md) | 指标①（跨章装置）的方法规格、实测依据与复现脚本 |
-| [profiles.example.yaml](profiles.example.yaml) | profiles.yaml 配置示例（阈值键与校准方法） |
+| [profiles.example.yaml](profiles.example.yaml) | 体裁参数配置说明（现行结构见仓库根 `profiles/` 目录） |
 
 ## 实验与证伪档案（负面清单的证据链，只增不改）
 
@@ -21,5 +21,6 @@
 | [lmscan-feature-audit.md](lmscan-feature-audit.md) | 同路线开源竞品 lmscan（Apache-2.0）24 特征逐条审计：中文双层失效；借算法不借管线 |
 | [storyscope-evolution-assessment.md](storyscope-evolution-assessment.md) | StoryScope 论文（arXiv 2604.03136）可迁移性评估：方向指导性充足、数值零迁移 |
 | [storyscope-dimension-transfer-test.md](storyscope-dimension-transfer-test.md) | 论文 30 特征→10 语义场维度迁移实测：6/10 方向相反，阈值必须自定 |
+| [cross-genre-external-test.md](cross-genre-external-test.md) | 跨体裁外部语料测试（新闻/知乎/学术各 5 篇）：描述层体裁分化、合取判据 0/5 升级；聚合数据见同目录 CSV |
 
 档案文档按「只增不改」维护：结论被后续实验推翻时在文内追加修订注，不重写历史段落。
