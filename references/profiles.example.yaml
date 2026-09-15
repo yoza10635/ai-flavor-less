@@ -1,0 +1,41 @@
+# profiles.yaml 配置示例
+#
+# 用法：把本文件复制为 profiles.yaml，放到【当前工作目录】、skill 根目录或 scripts/ 下
+# （脚本按此顺序查找，第一个存在者生效）。只写想覆盖的键即可，未写的用内置默认。
+#
+# 校准方法：python scripts/check.py --calibrate 已通过基线1.md 基线2.md ...
+#           按输出的"建议阈值"（均值±2σ）调整下面的数值。
+#
+# 内置默认（脚本内 DEFAULT_PROFILES）：
+#   通用: banlist=false  dialog=false  dataline=false  dash_thresh=null
+#         de_long_flag=false  de_sto_flag=false  tpl_thresh=5  rep_ratio=0.10
+#   网文: banlist=true   dialog=true   dataline=true   dash_thresh=4.0
+#         de_long_flag=true  de_sto_flag=true  tpl_thresh=3  rep_ratio=0.06
+#
+# banlist 是文体层总开关：开启后违禁词/情绪直写/对话标签/数据行/节奏偏匀等
+# 文体规则全部参与 flag 判定（脚本不硬编码 profile 名，自定义 profile 同样生效）。
+#
+# 可选键及默认值（见 detection-layers.md 的 profile 配置表）：
+#   banlist / dialog / dataline / de_long_flag (bool)
+#   dash_thresh   破折号绝对阈值（次/千字），null=只报分布不 flag
+#   tpl_thresh    模板词对命中总数阈值
+#   rep_ratio     重复骨架句占全句比例阈值
+#   sigma_thresh  段落σ均值下限（越低越匀）
+#   de_density_thresh  '的'密度上限（每百字）
+#   tag_thresh    对话标签占比上限
+#   mid_ratio_thresh  3-4句段占比上限
+#   stack_thresh  词性堆叠行数上限
+
+# 示例：按网文基线校准后的自定义阈值
+网文:
+  tpl_thresh: 4
+  rep_ratio: 0.05
+  dash_thresh: 5.0
+  sigma_thresh: 3.5
+
+# 也可以新增 profile：python scripts/check.py --profile=论文 文件.md
+论文:
+  banlist: false
+  de_long_flag: false
+  tpl_thresh: 6
+  rep_ratio: 0.08

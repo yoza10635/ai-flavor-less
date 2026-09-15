@@ -1,0 +1,187 @@
+# 句式指纹报告：{{ title }}
+
+- profile：**{{ profile }}**
+- 段落数：{{ paras_count }}　语义句数：{{ sent_count }}
+- '的'密度：{{ '%.1f'|format(l0.density) }}%（共 {{ l0.n_de }} 处 / {{ l0.n_chars }} 字）
+
+## L0 句内结构
+
+{% if cfg.de_long_flag and l0.de_long %}
+**⚠ '的'长链（≥3 连续，AI 长定语堆叠）×{{ l0.de_long|length }}**
+
+{% for pi, chain, nde, s in l0.de_long %}
+- 段{{ pi }} 链长{{ chain }}：{{ s }}
+{% endfor %}
+{% else %}
+'的'长链（≥3 连续）×{{ l0.de_long|length }}{% if not cfg.de_long_flag %}（通用 profile 仅展示不判 flag）{% endif %}
+
+{% for pi, chain, nde, s in l0.de_long[:20] %}
+- 段{{ pi }} 链长{{ chain }}：{{ s }}
+{% endfor %}
+{% if l0.de_long|length > 20 %}
+- … 其余 {{ l0.de_long|length - 20 }} 条略
+{% endif %}
+{% endif %}
+{% if l0.de_sto %}
+**⚠ '的'字结构顿号并列（规范宜用逗号，非 AI 味）×{{ l0.de_sto|length }}**
+
+{% for pi, n, s in l0.de_sto %}
+- 段{{ pi }}：{{ s }}
+{% endfor %}
+{% endif %}
+{% if l0.uv_rows %}
+**'地'状语堆叠（≥2）×{{ l0.uv_rows|length }}**
+
+{% for pi, n, s in l0.uv_rows %}
+- 段{{ pi }}：{{ s }}
+{% endfor %}
+{% endif %}
+{% if l0.stack_rows %}
+**⚠ 词性堆叠（≥3 连续同词性）×{{ l0.stack_rows|length }}**
+
+{% for pi, run, pos, s in l0.stack_rows %}
+- 段{{ pi }} ×{{ run }}（{{ pos }}）：{{ s }}
+{% endfor %}
+{% endif %}
+{% if l0.shi_rows %}
+**'是……的'强调句 ×{{ l0.shi_rows|length }}**
+
+{% for pi, s in l0.shi_rows %}
+- 段{{ pi }}：{{ s }}
+{% endfor %}
+{% endif %}
+{% if not l0.de_long and not l0.de_sto and not l0.uv_rows and not l0.stack_rows and not l0.shi_rows %}
+（无命中）
+{% endif %}
+
+## L0.5 模板标点
+
+{% if tpl.tpl_rows %}
+**句式模板词对复现（≥2 次）**
+
+| 模板 | 次数 | 示例 |
+| --- | --- | --- |
+{% for t, n, sents in tpl.tpl_rows %}
+| {{ t }} | {{ n }} | {{ sents[0] }} |
+{% endfor %}
+{% else %}
+（无模板词对复现）
+{% endif %}
+
+**标点密度（次/千字）**
+
+| 破折号 | 省略号 | 问号 | 感叹号 | 分号 | 冒号 |
+| --- | --- | --- | --- | --- | --- |
+| {{ '%.1f'|format(tpl.punct.get('破折号', 0)) }} | {{ '%.1f'|format(tpl.punct.get('省略号', 0)) }} | {{ '%.1f'|format(tpl.punct.get('问号', 0)) }} | {{ '%.1f'|format(tpl.punct.get('感叹号', 0)) }} | {{ '%.1f'|format(tpl.punct.get('分号', 0)) }} | {{ '%.1f'|format(tpl.punct.get('冒号', 0)) }} |
+{% if cfg.dash_thresh and tpl.punct.get('破折号', 0) > cfg.dash_thresh %}
+> ⚠ 破折号 {{ '%.1f'|format(tpl.punct['破折号']) }} 次/千字，超过阈值 {{ cfg.dash_thresh }}
+{% endif %}
+
+## L1 词层
+
+**句首词 Top12**
+
+{% for w, c in l1.starts_top %}{{ w }}({{ c }}) {% endfor %}
+
+**句末词 Top12**
+
+{% for w, c in l1.ends_top %}{{ w }}({{ c }}) {% endfor %}
+{% if l1.end_aux_ratio %}
+
+句末语气/助词占比：{% for w, r in l1.end_aux_ratio.items() %}{{ w }} {{ '%.1f'|format(r * 100) }}%{% if not loop.last %}、{% endif %}{% endfor %}
+{% endif %}
+{% if l1.low_info_paras %}
+
+**⚠ 信息停滞段（滚动 400 词窗内新实词 <12%）×{{ l1.low_info_paras|length }}**
+
+{% for pi, ratio, new, total in l1.low_info_paras %}
+- 段{{ pi }}：新实词 {{ new }}/{{ total }}（{{ '%.0f'|format(ratio * 100) }}%）
+{% endfor %}
+{% endif %}
+{% if l1.grams_top %}
+
+**高频 3-gram（≥3 次）Top**
+
+| 3-gram | 次数 |
+| --- | --- |
+{% for g, c in l1.grams_top[:20] %}
+| {{ g[0] }}{{ g[1] }}{{ g[2] }} | {{ c }} |
+{% endfor %}
+{% endif %}
+
+{% if cfg.banlist %}
+## L1.5 规范清单（{{ profile }} profile）
+
+{% if bl.ban_hits %}
+**⚠ 违禁/AI 高频词 ×{{ bl.ban_hits|length }}**
+
+{% for pi, w, ctx in bl.ban_hits %}
+- 段{{ pi }}「{{ w }}」：{{ ctx }}
+{% endfor %}
+{% endif %}
+{% if bl.emo_hits %}
+**⚠ 情绪直写（感到/觉得/心中…+情绪词）×{{ bl.emo_hits|length }}**
+
+{% for pi, m, ctx in bl.emo_hits %}
+- 段{{ pi }}「{{ m }}」：{{ ctx }}
+{% endfor %}
+{% endif %}
+{% if not bl.ban_hits and not bl.emo_hits %}
+（无违禁词 / 情绪直写命中）
+{% endif %}
+
+- 对话标签占比：**{{ '%.0f'|format(bl.tag_ratio * 100) }}%**（{{ bl.n_quotes }} 处引号）{% if cfg.tag_thresh and bl.tag_ratio > cfg.tag_thresh %} ⚠ 超过阈值 {{ '%.0f'|format(cfg.tag_thresh * 100) }}%{% endif %}
+- 引文占比：{{ '%.1f'|format(bl.quote_ratio * 100) }}%
+- 3-4 句段占比：**{{ '%.0f'|format(bl.mid_ratio * 100) }}%**{% if cfg.mid_ratio_thresh and bl.mid_ratio > cfg.mid_ratio_thresh %} ⚠ 偏多（阈值 {{ '%.0f'|format(cfg.mid_ratio_thresh * 100) }}%）{% endif %}
+{% if bl.data_runs %}
+**⚠ 连续系统数据行（≥2 段连续）×{{ bl.data_runs|length }} 组**
+
+{% for pids in bl.data_runs %}
+- 段 {{ pids|join('、') }}
+{% endfor %}
+{% endif %}
+{% if not bl.ban_hits and not bl.emo_hits and not bl.data_runs and bl.tag_ratio == 0 and bl.mid_ratio == 0 %}
+（规范清单各项均未命中）
+{% endif %}
+
+{% endif %}
+## L2 句法层（POS 骨架）
+
+{% if reps %}
+**重复骨架簇 ×{{ reps|length }}**
+
+{% for r in reps %}
+- 骨架 `{{ r.skel }}` ×{{ r.total }}（全句占比 {{ '%.0f'|format(r.n / sent_count * 100) }}%）
+{% for si, s in r['items'] %}
+  - {{ s }}
+{% endfor %}
+{% endfor %}
+{% else %}
+（无重复骨架簇）
+{% endif %}
+{% if runs %}
+**⚠ 排比簇（相邻 ≥3 句同骨架）×{{ runs|length }}**
+
+{% for run in runs %}
+- 起始句#{{ run[0][0] + 1 }}（共 {{ run|length }} 句，骨架 `{{ run[0][2] }}`）
+{% for si, s, skel in run %}
+  - {{ s }}
+{% endfor %}
+{% endfor %}
+{% endif %}
+
+## L3 节奏层
+
+{% if l3 %}
+| 段 | 句数 | 平均句长 | σ | MSSD | 短句占比(≤8字) |
+| --- | --- | --- | --- | --- | --- |
+{% for r in l3 %}
+| {{ r.para }} | {{ r.n }} | {{ '%.1f'|format(r.mean) }} | {{ '%.1f'|format(r.std) }} | {{ '%.1f'|format(r.mssd) }} | {{ '%.0f'|format(r.short * 100) }}% |
+{% endfor %}
+{% set avg_std = (l3 | map(attribute='std') | list | sum) / (l3 | length) %}
+{% if cfg.sigma_thresh and avg_std < cfg.sigma_thresh %}
+> ⚠ 段落 σ 均值 {{ '%.1f'|format(avg_std) }} 低于阈值 {{ cfg.sigma_thresh }}：节奏偏匀
+{% endif %}
+{% else %}
+（无可统计段落：每段句数需 ≥3）
+{% endif %}
