@@ -28,8 +28,9 @@
     页眉页脚/批注/脚注不计入统计）。
 
 配置：
-    profiles.yaml（按 当前工作目录 → 仓库根 → scripts/ 顺序查找，存在则覆盖内置默认；
-    可用 --calibrate 校准后手写）。
+    profiles/<体裁名>.yaml（每体裁一个文件，存在则覆盖内置默认；自定义 profile 以
+    "通用"为基底补齐缺省键）。旧版单文件 profiles.yaml 仍兼容（按 当前工作目录 →
+    仓库根 → scripts/ 顺序查找）。可用 --calibrate 校准后手写，阈值不跨语料迁移。
     报告模板：report_template.md.j2（jinja2，默认在 assets/ 下，也可放脚本同目录）。
 
 实现注记：
@@ -133,10 +134,23 @@ def find_profiles_yaml():
 
 
 def load_profiles():
-    """加载 profiles.yaml（存在则覆盖默认），否则用内置默认。"""
+    """加载文体参数：内置默认 ← profiles/*.yaml（每体裁一个文件）← profiles.yaml（旧版单文件，兼容）。
+
+    profiles/ 目录下每个 *.yaml 为一份体裁参数（文件内可含一个或多个 profile 名）；
+    自定义 profile 以"通用"为基底补齐缺省键，只写差异项即可。
+    新体裁建议先 --calibrate 基线文件，再按"建议阈值"（均值±2σ）填写。
+    """
     profiles = {k: dict(v) for k, v in DEFAULT_PROFILES.items()}
-    path = find_profiles_yaml()
-    if yaml is not None and path:
+    if yaml is None:
+        return profiles
+    pdir = os.path.join(SKILL_DIR, "profiles")
+    if os.path.isdir(pdir):
+        paths = sorted(os.path.join(pdir, f) for f in os.listdir(pdir)
+                       if f.endswith((".yaml", ".yml")))
+    else:
+        legacy = find_profiles_yaml()
+        paths = [legacy] if legacy else []
+    for path in paths:
         try:
             with open(path, encoding="utf-8") as f:
                 ext = yaml.safe_load(f) or {}
@@ -149,7 +163,7 @@ def load_profiles():
                     base.update(cfg or {})
                     profiles[name] = base
         except Exception as e:
-            print(f"⚠ {path} 加载失败（用内置默认）：{e}")
+            print(f"⚠ {path} 加载失败（跳过）：{e}")
     return profiles
 
 # ---------------------------------------------------------------- 文本解析

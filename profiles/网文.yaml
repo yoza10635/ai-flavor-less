@@ -1,0 +1,15 @@
+# 网文 profile：在通用之上叠加网文创作规范的专属规则
+# （黑名单/对话标签/系统数据行/绝对阈值）。
+# cv_thresh 为指标②（章级句长 CV）判据，宪章 §3.1：
+#   默认 null = 只报不 flag；用 --calibrate <已评审章节...> 得基线后手填（均值+2σ）。
+#   本值 0.864 来自 76 章网文基线（详见 ONTOLOGY.md），仅适用于同类语料，勿跨语料迁移。
+网文:
+  banlist: true         # 违禁词/情绪直写参与 flag（时敏层，结论只作提示）
+  dialog: true          # 对话标签占比
+  dataline: true        # 系统数据行（数字/百分比堆叠段）
+  dash_thresh: 5.0      # 破折号绝对阈值（次/千字）
+  de_long_flag: true    # "的"长链 flag
+  de_sto_flag: true     # 顿号并列"的" flag
+  tpl_thresh: 4         # 模板重复阈值
+  rep_ratio: 0.05       # 重复骨架句占比阈值
+  cv_thresh: 0.864      # 章级 CV 上限（--calibrate 均值+2σ，网文基线）

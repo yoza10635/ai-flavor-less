@@ -1,3 +1,5 @@
 __pycache__/
 *.pyc
 .workbuddy/
+reports/
+.pytest_cache/

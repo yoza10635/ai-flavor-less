@@ -23,7 +23,7 @@
 ## 快速开始
 
 ```bash
-pip install jieba jinja2 pyyaml
+pip install -r requirements.txt
 
 # 1. 单章检测（通用 profile）
 python scripts/check.py 章节.md
@@ -34,11 +34,25 @@ python scripts/check.py --profile=网文 章节1.md 章节2.md ...
 # 3. 跨章装置报告（指标①：结尾段复用同一套收尾装置，定位型，AUC 0.718）
 python scripts/check.py --cross-chapter ch*.md
 
-# 4. 用已通过的基线章节校准阈值（均值±2σ，人工确认后写入 profiles.yaml）
+# 4. 用已通过的基线章节校准阈值（均值±2σ，人工确认后写入 profiles/<体裁名>.yaml）
 python scripts/check.py --calibrate 已通过章节1.md 已通过章节2.md ...
 ```
 
 支持 `.md` / `.txt` / `.docx`；报告输出到 `reports/`，多章时附汇总对比表。
+
+> **跨体裁使用必须先校准**：通用 profile 的阈值参照系是网文/口语体。新闻、学术等
+> 正式文体的体裁惯例（公文排比"一是…二是…"、学术八股"基于…/研究表明…"）会在
+> 描述层大量触发——这是体裁属性而非 AI 味。先对同体裁基线跑 `--calibrate`，按
+> "建议阈值"新建 `profiles/<体裁名>.yaml`（每体裁一个文件，只写差异项）。
+
+## 输出长什么样
+
+真实输出样例（同一工具、两种人类文本，正好说明"flag ≠ AI 味"）：
+
+- [example-report-clean.md](docs/example-report-clean.md) —— 知乎口语体长文：干净通过，
+  仅零星词性堆叠提示；
+- [example-report-gongwen.md](docs/example-report-gongwen.md) —— 政务通稿：公文排比
+  骨架触发 19% 重复句 flag，但这是**体裁惯例**——人写的，按 Q2 归因不属于 AI 味。
 
 ## 方法概览
 
@@ -61,6 +75,8 @@ L1.5 规范清单（时敏层，仅特定 profile 启用）。
 | [ONTOLOGY.md](ONTOLOGY.md) | **宪章**：定义、成因、指标、合取判据、负面清单、修订四问 |
 | [references/README.md](references/README.md) | 方法规格与实验/证伪档案索引 |
 | [references/detection-layers.md](references/detection-layers.md) | 各层指标细节与阈值语义 |
+| [profiles/](profiles/) | 体裁参数（每体裁一个 yaml；`--calibrate` 后新建） |
+| [CHANGELOG.md](CHANGELOG.md) | 版本修订记录 |
 
 ## 能力边界
 

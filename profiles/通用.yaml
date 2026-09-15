@@ -1,0 +1,11 @@
+# 通用 profile（默认）。统计核心 + 文本内相对异常判断，不依赖文体先验。
+# 各键含义见 references/detection-layers.md；阈值含义见 profiles/网文.yaml 注释。
+通用:
+  banlist: false        # 不判黑名单词（"不禁"在文学文本是正常表达）
+  dialog: false         # 不判对话标签占比
+  dataline: false       # 不判系统数据行
+  dash_thresh: null     # 破折号不设绝对阈值，只报相对分布
+  de_long_flag: false   # "的"长链只展示不 flag（论文文体天然密度高）
+  de_sto_flag: false    # 顿号并列"的"不判 flag
+  tpl_thresh: 5         # 模板词对命中总数阈值
+  rep_ratio: 0.10       # 重复骨架句占全句比例阈值（相对自身规模）

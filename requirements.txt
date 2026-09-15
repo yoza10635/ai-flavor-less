@@ -1,0 +1,3 @@
+jieba>=0.42
+Jinja2>=3.0
+PyYAML>=6.0

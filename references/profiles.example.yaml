@@ -1,43 +1,15 @@
-# profiles.yaml 配置示例
+# 本文件已被 profiles/ 目录取代（2026-09-16 起）。
 #
-# 用法：把本文件复制为 profiles.yaml，放到【当前工作目录】、仓库根目录或 scripts/ 下
-# （脚本按此顺序查找，第一个存在者生效）。只写想覆盖的键即可，未写的用内置默认。
+# 现行结构：每体裁一个 yaml，见仓库根 profiles/ 目录：
+#   profiles/通用.yaml   —— 默认，统计核心 + 相对异常
+#   profiles/网文.yaml   —— 叠加网文规范规则 + 网文基线 cv_thresh
+#   profiles/论文.yaml   —— 自定义 profile 结构示例（未校准）
 #
-# 校准方法：python scripts/check.py --calibrate 已通过基线1.md 基线2.md ...
-#           按输出的"建议阈值"（均值±2σ）调整下面的数值。
+# 加载顺序：内置默认 ← profiles/*.yaml ← profiles.yaml（旧版单文件，仍兼容，
+# 按 当前工作目录 → 仓库根 → scripts/ 顺序查找）。
 #
-# 内置默认（脚本内 DEFAULT_PROFILES）：
-#   通用: banlist=false  dialog=false  dataline=false  dash_thresh=null
-#         de_long_flag=false  de_sto_flag=false  tpl_thresh=5  rep_ratio=0.10
-#   网文: banlist=true   dialog=true   dataline=true   dash_thresh=4.0
-#         de_long_flag=true  de_sto_flag=true  tpl_thresh=3  rep_ratio=0.06
-#
-# banlist 是文体层总开关：开启后违禁词/情绪直写/对话标签/数据行/节奏偏匀等
-# 文体规则全部参与 flag 判定（脚本不硬编码 profile 名，自定义 profile 同样生效）。
-#
-# 可选键及默认值（见 detection-layers.md 的 profile 配置表）：
-#   banlist / dialog / dataline / de_long_flag (bool)
-#   dash_thresh   破折号绝对阈值（次/千字），null=只报分布不 flag
-#   tpl_thresh    模板词对命中总数阈值
-#   rep_ratio     重复骨架句占全句比例阈值
-#   cv_thresh     章级句长 CV 上限（宪章指标②，越高越关注；null=只报不 flag）。
-#                 原始 σ 不作判据（与篇幅强相关、漂移主导），报告仅展示平均σ。
-#                 用 --calibrate <已评审章节...> 得基线 CV 后手填（均值+2σ）。
-#   de_density_thresh  '的'密度上限（每百字）
-#   tag_thresh    对话标签占比上限
-#   mid_ratio_thresh  3-4句段占比上限
-#   stack_thresh  词性堆叠行数上限
-
-# 示例：按基线校准后的自定义阈值（cv_thresh = 基线章节 --calibrate 的均值+2σ）
-网文:
-  tpl_thresh: 4
-  rep_ratio: 0.05
-  dash_thresh: 5.0
-  cv_thresh: 0.864
-
-# 也可以新增 profile：python scripts/check.py --profile=论文 文件.md
-论文:
-  banlist: false
-  de_long_flag: false
-  tpl_thresh: 6
-  rep_ratio: 0.08
+# 新增体裁的正规流程：
+#   1. python scripts/check.py --calibrate 基线1.md 基线2.md ...（同体裁已评审文本）
+#   2. 按输出"建议阈值"（均值±2σ）新建 profiles/<体裁名>.yaml，只写差异项
+#   3. python scripts/check.py --profile=<体裁名> 待检文件.md
+# 阈值不跨语料迁移（宪章 §六）。

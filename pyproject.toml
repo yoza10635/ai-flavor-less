@@ -1,0 +1,24 @@
+[project]
+name = "ai-flavor-less"
+version = "0.1.0"
+description = "中文「AI 味」统计自查工具：不依赖 LLM，以可复现数值指纹（跨章复用 + 句长方差合取判据）定位模板化痕迹，指导去 AI 味改稿。"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+dependencies = [
+    "jieba>=0.42",
+    "Jinja2>=3.0",
+    "PyYAML>=6.0",
+]
+keywords = ["chinese-nlp", "stylometry", "ai-detection", "writing-tools"]
+classifiers = [
+    "Natural Language :: Chinese (Simplified)",
+    "Programming Language :: Python :: 3",
+    "Topic :: Text Processing :: Linguistic",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

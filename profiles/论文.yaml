@@ -1,0 +1,9 @@
+# 论文 profile（示例）：学术八股（名词化、术语连用、"基于/研究表明"固定句式）
+# 会大量触发描述层 flag——这是体裁惯例而非 AI 味（宪章 Q2 归因，见 ONTOLOGY.md §五）。
+# 本文件阈值未经校准，仅作自定义 profile 的结构示例；
+# 正式使用请对同体裁基线论文跑 --calibrate，按"建议阈值"（均值±2σ）填写。
+论文:
+  banlist: false
+  de_long_flag: false   # "的"密度在论文文体天然偏高，不 flag
+  tpl_thresh: 6
+  rep_ratio: 0.08
