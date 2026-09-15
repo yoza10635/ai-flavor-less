@@ -656,7 +656,7 @@ def l3_rhythm(paras):
 _JINJA = None
 
 
-def render_chapter_report(title, paras, l0, tpl, l1, bl, reps, runs, l3, profile, cfg=None):
+def render_chapter_report(title, paras, l0, tpl, l1, bl, reps, runs, l3, profile, cfg=None, l4=None):
     """用 jinja2 模板渲染章节报告（report_template.md.j2）。"""
     global _JINJA
     if Environment is None:
@@ -668,7 +668,7 @@ def render_chapter_report(title, paras, l0, tpl, l1, bl, reps, runs, l3, profile
         "paras_count": len(paras),
         "sent_count": sum(len(split_semantic_sents(p)) for p in paras),
         "l0": l0, "tpl": tpl, "l1": l1, "bl": bl,
-        "reps": reps, "runs": runs, "l3": l3,
+        "reps": reps, "runs": runs, "l3": l3, "l4": l4,
         "cfg": cfg or {},
     }
     return _JINJA.get_template("report_template.md.j2").render(**data)
@@ -694,6 +694,7 @@ def calibrate(files):
         bl = l_banlist(paras)
         reps, runs = l2_skeletons(sents_all)
         l3 = l3_rhythm(paras)
+        l4 = l4_density(paras)
         sents = len(sents_all)
         avg_std = sum(r["std"] for r in l3) / len(l3) if l3 else 0
         avg_mssd = sum(r["mssd"] for r in l3) / len(l3) if l3 else 0
@@ -708,6 +709,8 @@ def calibrate(files):
             "'的'密度": l0["density"],
             "破折号": tpl["punct"].get("破折号", 0),
             "章CV": cv,
+            "对偶率": l4["para_rate"],
+            "重叠率": l4["echo_rate"],
             "平均σ": avg_std,
             "平均MSSD": avg_mssd,
             "对话标签": bl["tag_ratio"],
@@ -735,11 +738,15 @@ def calibrate(files):
         else:
             thresh = mean + 2 * sd
             direct = "低好：超过此报警"
+        if k == "章CV":
+            direct += "（指标②；注意本语料方向=高→关注，勿继承英文工具的低→AI 假设）"
+        elif k in ("对偶率", "重叠率"):
+            direct += "（指标③试验位双型：章级分离 AUC 对偶0.69/重叠0.86，重叠漂移+0.30 压线；过正例复核前勿启用 flag）"
         print(f"{k} | {mean:.3f} | {sd:.3f} | {thresh:.3f} | {direct}")
     print()
     print("提示：校准结果供人工参考，确认后写入 profiles.yaml 生效。")
 
-def summarize(title, paras, l0, tpl, l1, bl, reps, runs, l3, profile, cfg):
+def summarize(title, paras, l0, tpl, l1, bl, reps, runs, l3, profile, cfg, l4=None):
     sents = sum(len(split_semantic_sents(p)) for p in paras)
     flat = l3
     avg_mssd = sum(r["mssd"] for r in flat) / len(flat) if flat else 0
@@ -788,7 +795,10 @@ def summarize(title, paras, l0, tpl, l1, bl, reps, runs, l3, profile, cfg):
             flags.append(f"数据行×{len(bl['data_runs'])}")
     return {
         "章": title, "语义句": sents, "重复骨架簇": n_reps, "排比簇": len(runs),
-        "章CV": round(cv, 3), "平均σ": round(avg_std, 1), "平均MSSD": round(avg_mssd, 1),
+        "章CV": round(cv, 3),
+        "对偶率": round(l4["para_rate"], 2) if l4 else None,
+        "重叠率": round(l4["echo_rate"], 2) if l4 else None,
+        "平均σ": round(avg_std, 1), "平均MSSD": round(avg_mssd, 1),
         "'的'密度": round(l0["density"], 1),
         "flags": "；".join(flags) if flags else "—",
     }
@@ -805,6 +815,89 @@ class TokCache:
         if key not in self._c:
             self._c[key] = pos_tag(s, normalize_pn)
         return self._c[key]
+
+
+# ---------------------------------------------------------------- L4 信息密度（试验位）
+# 宪章指标③「信息密度低 = 车轱辘话」的操作化：对偶重复率。
+# 定义（2×2 矩阵左上象限，见对话记录 2026-09-15）：相邻语义句对若
+#   ① POS 骨架高度相似（编辑相似度 ≥ DPOS_SIM）——句式没换（句法新颖度低）
+#   ② 实词重合率极低（Jaccard ≤ DCONTENT_J）——词全换了（词汇新颖度高）
+#   ③ 长度可比（min/max ≥ DLEN_RATIO）且实词数 ≥ DMIN_CONTENT —— 排除碎片句误配
+# 即"换词不换句式"＝同义替换句对。注意与 L2 重复骨架的分工：L2 数"同骨架复现"
+# （不区分实词换没换，含指标①成分），L4 只数其中"实词大换血"的子集＝纯③信号。
+# 判定形态 = 章级速率（对/千字），**试验位只展示不 flag**——须先过
+# 漂移检验（×章号 r<0.30）与分组分离检验才提名进合取（宪章§3.2 资格线）。
+
+DPOS_SIM = 0.70        # 对偶型：骨架编辑相似度阈值
+DCONTENT_J = 0.25      # 对偶型：实词 Jaccard 上限（重合超过它就不算"换词"）
+DJAC_ECHO = 0.20       # 重叠型：相邻句实词 Jaccard 下限（同词反复；76章扫描 AUC0.86/漂移+0.30）
+DLEN_RATIO = 0.5       # 句长比下限（两型共用；排除长短悬殊误配）
+DMIN_CONTENT = 3       # 参与配对的最少实词数（<3 会退化为短句碎片代理，扫描证实漂移劫持）
+DWINDOW = 2            # 只在段内相邻 ±2 句内找对（车轱辘话是局部现象）
+
+
+def _pos_sim(a, b):
+    """POS 序列编辑相似度 = 1 - lev/max(len)。序列短（≤30），DP 足够快。"""
+    la, lb = len(a), len(b)
+    if la == 0 or lb == 0:
+        return 0.0
+    prev = list(range(lb + 1))
+    for i in range(1, la + 1):
+        cur = [i] + [0] * lb
+        ai = a[i - 1]
+        for j in range(1, lb + 1):
+            cur[j] = min(prev[j] + 1, cur[j - 1] + 1,
+                         prev[j - 1] + (ai != b[j - 1]))
+        prev = cur
+    return 1.0 - prev[lb] / max(la, lb)
+
+
+def l4_density(paras, tok_cache=None):
+    """信息密度双型（指标③试验位）。
+
+    para = 对偶型「换词不换句式」（jac≤0.25 且 psim≥0.70）：章级 AUC 0.69、漂移 +0.15（过线）。
+    echo = 重叠型「同词反复」（jac≥0.20）：章级 AUC 0.86、漂移 +0.30（压线，待正例复核）。
+    均只展示不 flag——合取资格见 references/indicator-3-density-validation.md。
+    返回 {para_rate, echo_rate, para, echo, examples, n_sents}。
+    """
+    para_ex, echo_ex = [], []
+    n_sents = 0
+    for pi, para in enumerate(paras):
+        sents = split_semantic_sents(para)
+        info = []  # (句号, POS序列, 实词set, 字符长, 原文)
+        for si, s in enumerate(sents):
+            toks = tok_cache.get(s) if tok_cache else pos_tag(s)
+            pos_seq = [p for _, p in toks if p not in FUNC_POS and p not in PUN_DROP]
+            content = {w for w, p in toks if p.startswith(CONTENT_POS) and w not in PUNCT}
+            info.append((si, pos_seq, content, len(s), s))
+            n_sents += 1
+        for a in range(len(info)):
+            _, seq_a, con_a, len_a, txt_a = info[a]
+            if len(con_a) < DMIN_CONTENT:
+                continue
+            for b in range(a + 1, min(a + 1 + DWINDOW, len(info))):
+                _, seq_b, con_b, len_b, txt_b = info[b]
+                if len(con_b) < DMIN_CONTENT:
+                    continue
+                lr = min(len_a, len_b) / max(len_a, len_b, 1)
+                if lr < DLEN_RATIO:
+                    continue
+                jac = len(con_a & con_b) / len(con_a | con_b)
+                if jac <= DCONTENT_J:
+                    sim = _pos_sim(seq_a, seq_b)
+                    if sim >= DPOS_SIM:
+                        para_ex.append({"para": pi + 1, "s1": txt_a, "s2": txt_b,
+                                        "jac": round(jac, 2), "sim": round(sim, 2)})
+                        continue
+                if jac >= DJAC_ECHO:
+                    echo_ex.append({"para": pi + 1, "s1": txt_a, "s2": txt_b,
+                                    "jac": round(jac, 2)})
+    chars = sum(len(p) for p in paras) or 1
+    k = chars / 1000
+    return {"para": len(para_ex), "echo": len(echo_ex),
+            "para_rate": len(para_ex) / k, "echo_rate": len(echo_ex) / k,
+            "examples": para_ex[:6] + [{**e, "sim": None} for e in echo_ex[:6]],
+            "n_sents": n_sents}
 
 
 # ---------------------------------------------------------------- 跨章装置（指标①）
@@ -887,6 +980,33 @@ def cross_chapter(files, out_dir):
     print(f"✔ 完整报告 → {out_path}")
 
 
+def density_report(files):
+    """--density：信息密度双型章级速率表（指标③试验位，供漂移/分离度验证）。"""
+    rows = []
+    for fp in files:
+        if not os.path.exists(fp):
+            print(f"跳过：{fp} 不存在")
+            continue
+        title, paras = read_chapter(fp)
+        m = re.search(r"ch(\d+)", os.path.basename(fp))
+        ch = int(m.group(1)) if m else -1
+        cache = TokCache()
+        d = l4_density(paras, cache)
+        cv = chapter_cv(paras)
+        rows.append((ch, title, d["para_rate"], d["echo_rate"], d["n_sents"], cv))
+    rows.sort()
+    print("章 | 标题 | 对偶率(对/千字) | 重叠率(对/千字) | 语义句 | 章CV")
+    print("--- | --- | --- | --- | --- | ---")
+    for ch, t, pr, er, ns, cv in rows:
+        print(f"ch{ch:03d} | {t} | {pr:.2f} | {er:.2f} | {ns} | {cv:.3f}")
+    if len(rows) > 2:
+        import statistics
+        prs = [r[2] for r in rows]; ers = [r[3] for r in rows]
+        print(f"\n合计 {len(rows)} 章")
+        print(f"对偶率 均值 {statistics.mean(prs):.2f} σ {statistics.stdev(prs):.3f}")
+        print(f"重叠率 均值 {statistics.mean(ers):.2f} σ {statistics.stdev(ers):.3f}")
+
+
 def main():
     global OUT_DIR
     args = sys.argv[1:]
@@ -903,6 +1023,9 @@ def main():
     PROFILES = load_profiles()
     if "--cross-chapter" in args:
         cross_chapter(files, OUT_DIR)
+        return
+    if "--density" in args:
+        density_report(files)
         return
     if "--calibrate" in args:
         calibrate(files)
@@ -933,21 +1056,22 @@ def main():
         }
         reps, runs = l2_skeletons(sents_all, cache)
         l3 = l3_rhythm(paras)
-        report = render_chapter_report(title, paras, l0, tpl, l1, bl, reps, runs, l3, profile, PROFILES[profile])
+        l4 = l4_density(paras, cache)
+        report = render_chapter_report(title, paras, l0, tpl, l1, bl, reps, runs, l3, profile, PROFILES[profile], l4)
         out_name = os.path.splitext(os.path.basename(fp))[0] + f"_指纹报告_{profile}.md"
         out_path = os.path.join(OUT_DIR, out_name)
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(report)
-        summary_rows.append(summarize(title, paras, l0, tpl, l1, bl, reps, runs, l3, profile, PROFILES[profile]))
+        summary_rows.append(summarize(title, paras, l0, tpl, l1, bl, reps, runs, l3, profile, PROFILES[profile], l4))
         print(f"✔ {os.path.basename(fp)} → {os.path.basename(out_path)}")
     if len(summary_rows) > 1:
         print("\n=== 汇总对比 ===")
-        header = "章 | 语义句 | 重复骨架簇 | 排比簇 | 章CV | 平均σ | 平均MSSD | 的密度 | flags"
+        header = "章 | 语义句 | 重复骨架簇 | 排比簇 | 章CV | 对偶率 | 重叠率 | 平均σ | 平均MSSD | 的密度 | flags"
         print(header)
         print("-" * len(header))
         for r in summary_rows:
             de_density = r["'的'密度"]
-            print(f"{r['章']} | {r['语义句']} | {r['重复骨架簇']} | {r['排比簇']} | {r['章CV']} | {r['平均σ']} | {r['平均MSSD']} | {de_density} | {r['flags']}")
+            print(f"{r['章']} | {r['语义句']} | {r['重复骨架簇']} | {r['排比簇']} | {r['章CV']} | {r['对偶率']} | {r['重叠率']} | {r['平均σ']} | {r['平均MSSD']} | {de_density} | {r['flags']}")
 
 
 if __name__ == "__main__":

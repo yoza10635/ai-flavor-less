@@ -188,3 +188,24 @@
 {% else %}
 （无可统计段落：每段句数需 ≥3）
 {% endif %}
+
+## L4 信息密度（指标③·试验位：对偶 + 重叠双型）
+
+{% if l4 %}
+> 对偶 = 相邻句「骨架同（≥0.70）但实词大换血（≤0.25）」——换词不换句式；
+> 重叠 = 相邻句实词反复（≥0.20）——同词复读。章级分离 AUC 对偶 0.69 / 重叠 0.86，
+> 试验位：**只展示不判 flag**（资格线与验收见 references/indicator-3-density-validation.md）。
+
+- 对偶率 **{{ '%.2f'|format(l4.para_rate) }}** 对/千字（{{ l4.para }} 对）　·　重叠率 **{{ '%.2f'|format(l4.echo_rate) }}** 对/千字（{{ l4.echo }} 对）/ {{ l4.n_sents }} 语义句
+{% if l4.examples %}
+| 型 | 段 | 句 A | 句 B | 实词重合 | 骨架相似 |
+| --- | --- | --- | --- | --- | --- |
+{% for e in l4.examples %}
+| {{ '对偶' if e.sim is not none else '重叠' }} | {{ e.para }} | {{ e.s1[:26] }}{% if e.s1|length > 26 %}…{% endif %} | {{ e.s2[:26] }}{% if e.s2|length > 26 %}…{% endif %} | {{ '%.2f'|format(e.jac) }} | {{ '%.2f'|format(e.sim) if e.sim is not none else '—' }} |
+{% endfor %}
+{% else %}
+（未检出对偶/重叠句对）
+{% endif %}
+{% else %}
+（未运行 L4）
+{% endif %}
