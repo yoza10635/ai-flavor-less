@@ -164,4 +164,4 @@
 - 源码：`.workbuddy/tmp/lmscan-0.6.1/`（features.py 763 行 / detector.py 378 行 / classifier.py 279 行 / perplexity.py 275 行 / calibration.py 90 行）
 - 实验：`.workbuddy/tmp/lmscan_cn_test.py`（直跑+英文对照）、`lmscan_cn_test2.py`（切分修复）
 - 上游宣传口径核对：README"12 statistical features"实为 24（v0.6.1）；CHANGELOG 自曝 23→24 特征演进
-- 相关：`competitive-analysis.md`（尽调总报告）、`ONTOLOGY.md`（审计标尺）
+- 相关：`ONTOLOGY.md`（审计标尺）、`cross-chapter-phrase-cloud.md`（指标①来源与四层误判消歧）
