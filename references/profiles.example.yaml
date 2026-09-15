@@ -20,18 +20,21 @@
 #   dash_thresh   破折号绝对阈值（次/千字），null=只报分布不 flag
 #   tpl_thresh    模板词对命中总数阈值
 #   rep_ratio     重复骨架句占全句比例阈值
-#   sigma_thresh  段落σ均值下限（越低越匀）
+#   cv_thresh     章级句长 CV 上限（宪章指标②，越高越关注；null=只报不 flag）。
+#                 取代原 sigma_thresh——原始σ漂移 r=-0.771 不可用，σ 仅在报告展示不作判据。
+#                 用 --calibrate <已评审章节...> 得基线 CV 后手填（如 0.721+2σ）。
+#   sigma_thresh  [已退役/过渡保留] 段落σ均值下限；填了仍会 flag（标"仅展示"），建议删除本键改用 cv_thresh
 #   de_density_thresh  '的'密度上限（每百字）
 #   tag_thresh    对话标签占比上限
 #   mid_ratio_thresh  3-4句段占比上限
 #   stack_thresh  词性堆叠行数上限
 
-# 示例：按网文基线校准后的自定义阈值
+# 示例：按网文基线校准后的自定义阈值（cv_thresh 来自 A 组 10 章 --calibrate 均值0.721+2σ）
 网文:
   tpl_thresh: 4
   rep_ratio: 0.05
   dash_thresh: 5.0
-  sigma_thresh: 3.5
+  cv_thresh: 0.864
 
 # 也可以新增 profile：python scripts/check.py --profile=论文 文件.md
 论文:

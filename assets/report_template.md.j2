@@ -173,14 +173,17 @@
 ## L3 节奏层
 
 {% if l3 %}
-| 段 | 句数 | 平均句长 | σ | MSSD | 短句占比(≤8字) |
-| --- | --- | --- | --- | --- | --- |
+| 段 | 句数 | 平均句长 | σ | CV | MSSD | 短句占比(≤8字) |
+| --- | --- | --- | --- | --- | --- | --- |
 {% for r in l3 %}
-| {{ r.para }} | {{ r.n }} | {{ '%.1f'|format(r.mean) }} | {{ '%.1f'|format(r.std) }} | {{ '%.1f'|format(r.mssd) }} | {{ '%.0f'|format(r.short * 100) }}% |
+| {{ r.para }} | {{ r.n }} | {{ '%.1f'|format(r.mean) }} | {{ '%.1f'|format(r.std) }} | {{ '%.2f'|format(r.cv) }} | {{ '%.1f'|format(r.mssd) }} | {{ '%.0f'|format(r.short * 100) }}% |
 {% endfor %}
 {% set avg_std = (l3 | map(attribute='std') | list | sum) / (l3 | length) %}
-{% if cfg.sigma_thresh and avg_std < cfg.sigma_thresh %}
-> ⚠ 段落 σ 均值 {{ '%.1f'|format(avg_std) }} 低于阈值 {{ cfg.sigma_thresh }}：节奏偏匀
+{% set avg_cv = (l3 | map(attribute='cv') | list | sum) / (l3 | length) %}
+> 宪章指标②用 **CV（σ/mean）**，不用原始 σ（σ 受篇幅混淆，实测漂移 r=-0.771 不可用）。
+> 段内均值 CV = {{ '%.2f'|format(avg_cv) }}（σ 均值 {{ '%.1f'|format(avg_std) }} 仅展示）。
+{% if cfg.cv_thresh and avg_cv > cfg.cv_thresh %}
+> ⚠ 段内均值 CV {{ '%.2f'|format(avg_cv) }} 高于阈值 {{ cfg.cv_thresh }}：句长方差漂移（关注）
 {% endif %}
 {% else %}
 （无可统计段落：每段句数需 ≥3）

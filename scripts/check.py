@@ -1,17 +1,19 @@
 # -*- coding: utf-8 -*-
 """
-句式指纹检测器 v1.0 —— 双层架构（统计核心 + 文体 profile）
+句式指纹检测器 v1.1 —— 双层架构（统计核心 + 文体 profile）
 
-L0 句内结构：'的'链/顿号并列/词性堆叠/'是…的'句
-L0.5 模板标点：句式模板词对（半同构）+ 标点密度指纹
-L1 词层    ：新信息率、句首/句末词分布、高频 3-gram 复现
-L1.5 规范清单：AI 高频词/情绪直写/对话标签/系统数据行（仅网文 profile）
-L2 句法层  ：POS 骨架指纹（清洗后）全文倒排 → 重复簇 + 排比簇
-L3 节奏层  ：语义句长分布、段内 MSSD、短句密度
+L0 句内结构：'的'链/顿号并列/词性堆叠/'是…的'句（宪章：可读性层，与 AI 味弱相关）
+L0.5 模板标点：句式模板词对（半同构）+ 标点密度指纹（强化"复现"部分）
+L1 词层    ：新信息率、句首/句末词分布、高频 3-gram 复现（辅助）
+L1.5 规范清单：AI 高频词/情绪直写/对话标签/系统数据行（时敏层，仅提示，宪章§3.3）
+L2 句法层  ：POS 骨架指纹（清洗后）全文倒排 → 重复簇 + 排比簇（归指标①）
+L3 节奏层  ：章级句长 CV=σ/mean（指标②）+ 段内 MSSD/短句密度（σ 仅展示不作判据）
+XC 跨章装置：--cross-chapter 结尾段 4-gram 跨章复用（指标①，定位型，AUC 0.718★）
 
 用法：
     python scripts/check.py [--profile=通用|网文] [--out-dir=reports] 文件 [文件 ...]
-    python scripts/check.py --calibrate <基线文件...>   # 均值±2σ 校准建议阈值
+    python scripts/check.py --calibrate <基线文件...>        # 均值±2σ 校准建议阈值
+    python scripts/check.py --cross-chapter <文件...>        # 跨章装置报告（指标①）
     python scripts/check.py --profile=网文 05-正文/ch006_残方.md
 
 支持格式：.md / .txt / 无扩展名文本 / .docx（Word）。
@@ -92,6 +94,7 @@ DEFAULT_PROFILES = {
         "de_sto_flag": True,
         "tpl_thresh": 3,
         "rep_ratio": 0.06,
+        "cv_thresh": None,     # 指标②绝对阈值默认关闭：用 --calibrate 得基线 CV 后手填（宪章§七）
     },
 }
 DEFAULT_PROFILE = "通用"
@@ -600,6 +603,30 @@ def l2_skeletons(sents_all, tok_cache=None):
 
 
 # ---------------------------------------------------------------- L3 节奏层
+# 宪章指标② =「标准化方差」：判据用 CV = σ/mean，不用原始 σ。
+# 依据（references/../../.workbuddy 实测记录 2026-09-15）：原始 σ 漂移 r=-0.771 且
+# 已知装置命中率 AUC 0.521（不可用）；章级 CV 漂移 r=-0.081（唯一抗漂移）、AUC 0.706★。
+# CV 公式与 lmscan sentence_length_variance 同型（std/mean），参考实现 lmscan v0.6.1
+# (Apache-2.0, github.com/stef41/lmscan)；**方向按本语料自定：高 CV → 关注**
+# （A 0.660 → C 0.704；不继承 lmscan 的 low_is_ai——那依赖英文说明文节奏假设）。
+
+
+def sent_cv(lens):
+    """变异系数 CV = 标准差/均值。lens 为空或均值为 0 时返回 0。"""
+    n = len(lens)
+    if n < 2:
+        return 0.0
+    mean = sum(lens) / n
+    if mean <= 0:
+        return 0.0
+    var = sum((x - mean) ** 2 for x in lens) / n
+    return (var ** 0.5) / mean
+
+
+def chapter_cv(paras):
+    """章级句长 CV（全书实测口径：全章标点句字长，与 stat_layer_test 一致）。"""
+    lens = [len(s) for p in paras for s in split_final_sents(p)]
+    return sent_cv(lens)
 
 
 def l3_rhythm(paras):
@@ -616,6 +643,7 @@ def l3_rhythm(paras):
         short_ratio = sum(1 for x in lens if x <= 8) / len(lens)
         rows.append({
             "para": pi + 1, "n": len(fin), "mean": mean, "std": std,
+            "cv": std / mean if mean else 0.0,
             "mssd": mssd, "short": short_ratio,
         })
     return rows
@@ -669,6 +697,7 @@ def calibrate(files):
         sents = len(sents_all)
         avg_std = sum(r["std"] for r in l3) / len(l3) if l3 else 0
         avg_mssd = sum(r["mssd"] for r in l3) / len(l3) if l3 else 0
+        cv = chapter_cv(paras)
         rows.append({
             "章": os.path.basename(fp),
             "重复骨架簇": len(reps),
@@ -678,6 +707,7 @@ def calibrate(files):
             "堆叠": len(l0["stack_rows"]),
             "'的'密度": l0["density"],
             "破折号": tpl["punct"].get("破折号", 0),
+            "章CV": cv,
             "平均σ": avg_std,
             "平均MSSD": avg_mssd,
             "对话标签": bl["tag_ratio"],
@@ -714,6 +744,7 @@ def summarize(title, paras, l0, tpl, l1, bl, reps, runs, l3, profile, cfg):
     flat = l3
     avg_mssd = sum(r["mssd"] for r in flat) / len(flat) if flat else 0
     avg_std = sum(r["std"] for r in flat) / len(flat) if flat else 0
+    cv = chapter_cv(paras)  # 宪章指标②：章级 CV（σ 仅展示，不再作为判据）
     n_reps = sum(1 for r in reps if r["n"] >= 2)
     rep_sent_ratio = sum(r["n"] for r in reps) / sents if sents else 0
     flags = []
@@ -735,8 +766,12 @@ def summarize(title, paras, l0, tpl, l1, bl, reps, runs, l3, profile, cfg):
         flags.append(f"顿号并列'的'×{len(l0['de_sto'])}")
     # ---- 文体层（banlist 开启的 profile）：项目规范规则 ----
     if cfg.get("banlist"):
-        if avg_std < cfg.get("sigma_thresh", 4.0):
-            flags.append("节奏偏匀")
+        # 宪章指标②：判据用章级 CV（高 → 关注；本语料 A 0.660 → C 0.704，方向自定）。
+        # 原「节奏偏匀」σ 判据废弃：σ 漂移 r=-0.771、命中 AUC 0.521，实测不可用（ONTOLOGY §3.1）。
+        if cfg.get("cv_thresh") and cv > cfg["cv_thresh"]:
+            flags.append(f"句长方差漂移(CV {cv:.2f})")
+        if cfg.get("sigma_thresh") and avg_std < cfg["sigma_thresh"]:
+            flags.append(f"σ偏低(仅展示:{avg_std:.1f})")  # 过渡期保留，profiles.yaml 删除键即停用
         if cfg.get("dash_thresh") and tpl["punct"].get("破折号", 0) > cfg["dash_thresh"]:
             flags.append(f"破折号{tpl['punct']['破折号']:.1f}")
         if l0["density"] > cfg.get("de_density_thresh", 6):
@@ -753,7 +788,7 @@ def summarize(title, paras, l0, tpl, l1, bl, reps, runs, l3, profile, cfg):
             flags.append(f"数据行×{len(bl['data_runs'])}")
     return {
         "章": title, "语义句": sents, "重复骨架簇": n_reps, "排比簇": len(runs),
-        "平均σ": round(avg_std, 1), "平均MSSD": round(avg_mssd, 1),
+        "章CV": round(cv, 3), "平均σ": round(avg_std, 1), "平均MSSD": round(avg_mssd, 1),
         "'的'密度": round(l0["density"], 1),
         "flags": "；".join(flags) if flags else "—",
     }
@@ -772,6 +807,86 @@ class TokCache:
         return self._c[key]
 
 
+# ---------------------------------------------------------------- 跨章装置（指标①）
+# 宪章三指标之①「出现频率」= 跨章 n-gram 复用。方法规格与实测依据：
+# references/cross-chapter-phrase-cloud.md（结尾段 + 字符 4-gram + DF≥3 章；
+# 结尾段 4-gram Jaccard 已知装置命中率 AUC 0.718★，全指标最高）。
+# Counter 统计骨架与 lmscan long_ngram_repetition 同族（参考实现 lmscan v0.6.1,
+# Apache-2.0, github.com/stef41/lmscan），两点关键差异：
+#   1) 作用域升为**跨章**（lmscan 仅章内）；2) 抽取范围限**结尾段**（装置集中在收尾）。
+# 不复制其词表与英文分词假设——字符级 n-gram 天然免分词。
+
+CLOUD_N = 4          # 字符 n-gram 长度（5-gram 过稀、3-gram 混入常用搭配噪声）
+CLOUD_TAIL = 3       # 每章取最后 N 段
+CLOUD_DF_HINT = 3    # DF≥3 章 → 提示
+CLOUD_DF_FLAG = 5    # DF≥5 章 → flag（76 章量级下 ≥3 章已是 4% 低概率事件）
+
+
+def chapter_tail_grams(paras, n=CLOUD_N, tail=CLOUD_TAIL):
+    """取章节结尾段的字符 n-gram 集合（去非汉字后滑动窗口）。返回 set。"""
+    if not paras:
+        return set()
+    tail_text = "".join(paras[-tail:])
+    han = re.sub(r"[^\u4e00-\u9fff]", "", tail_text)
+    return {han[i:i + n] for i in range(len(han) - n + 1)}
+
+
+def cross_chapter(files, out_dir):
+    """--cross-chapter：扫描多章，输出跨章复用装置报告（指标①）。"""
+    from collections import defaultdict
+    gram_df = defaultdict(set)             # gram -> {章序数}
+    chap_names = []
+    chap_grams = {}
+    for fp in files:
+        if not os.path.exists(fp):
+            print(f"跳过：{fp} 不存在")
+            continue
+        title, paras = read_chapter(fp)
+        idx = len(chap_names)
+        chap_names.append(title)
+        grams = chapter_tail_grams(paras)
+        chap_grams[idx] = grams
+        for g in grams:
+            gram_df[g].add(idx)
+    # 聚簇：按章号相邻性给装置归段（"装置有任期"，见 references §3）
+    clouds = sorted(gram_df.items(), key=lambda kv: -len(kv[1]))
+    strong = [(g, chs) for g, chs in clouds if len(chs) >= CLOUD_DF_HINT]
+    lines = []
+    lines.append("# 跨章装置报告（指标①：出现频率）\n")
+    lines.append(f"- 语料：{len(chap_names)} 章　·　方法：结尾 {CLOUD_TAIL} 段 → 字符 {CLOUD_N}-gram → 跨章 DF≥{CLOUD_DF_HINT}")
+    lines.append(f"- 判级：DF≥{CLOUD_DF_HINT} 提示；DF≥{CLOUD_DF_FLAG} flag（宪章：定位型指标，指向具体可改句）\n")
+    if not strong:
+        lines.append("**未发现跨章复用装置（本批章节结尾段无 DF≥%d 片段）。**" % CLOUD_DF_HINT)
+    else:
+        lines.append("| 装置片段 | 章数(DF) | 级别 | 章节 |")
+        lines.append("| --- | --- | --- | --- |")
+        for g, chs in strong:
+            chs_sorted = sorted(chs)
+            level = "🚩 flag" if len(chs) >= CLOUD_DF_FLAG else "⚠ 提示"
+            names = "、".join(chap_names[i] for i in chs_sorted)
+            lines.append(f"| {g} | ×{len(chs)} | {level} | {names} |")
+        # 每章被牵连度（评分用）：该章结尾段中命中装置片段的个数
+        lines.append("\n## 每章牵连度（结尾段命中装置片段数，定位改哪章优先）\n")
+        lines.append("| 章节 | 命中装置数 | 其中 flag 级 |")
+        lines.append("| --- | --- | --- |")
+        flaggy = {g for g, chs in strong if len(chs) >= CLOUD_DF_FLAG}
+        cloud = {g for g, _ in strong}
+        for i, name in enumerate(chap_names):
+            hit = chap_grams.get(i, set()) & cloud
+            hit_flag = chap_grams.get(i, set()) & flaggy
+            lines.append(f"| {name} | {len(hit)} | {len(hit_flag)} |")
+    report = "\n".join(lines) + "\n"
+    out_path = os.path.join(out_dir, "跨章装置报告.md")
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(report)
+    # stdout 摘要
+    print(f"=== 跨章装置（指标①）：{len(strong)} 个 DF≥{CLOUD_DF_HINT} 片段，"
+          f"其中 flag 级 {sum(1 for _, c in strong if len(c) >= CLOUD_DF_FLAG)} 个 ===")
+    for g, chs in strong[:10]:
+        print(f"  ×{len(chs):2d}  {g}")
+    print(f"✔ 完整报告 → {out_path}")
+
+
 def main():
     global OUT_DIR
     args = sys.argv[1:]
@@ -786,6 +901,9 @@ def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     files = [a for a in args if not a.startswith("--")]
     PROFILES = load_profiles()
+    if "--cross-chapter" in args:
+        cross_chapter(files, OUT_DIR)
+        return
     if "--calibrate" in args:
         calibrate(files)
         return
@@ -796,6 +914,7 @@ def main():
         print(__doc__)
         print(f"可用 profile：{' / '.join(PROFILES)}（默认 {DEFAULT_PROFILE}），例：--profile=网文")
         print("校准模式：--calibrate 基线文件.md [更多基线文件.md]")
+        print("跨章装置：--cross-chapter 文件...（指标①，输出<结尾段 4-gram 跨章复用>报告，需 ≥2 章）")
         return
     summary_rows = []
     for fp in files:
@@ -823,12 +942,12 @@ def main():
         print(f"✔ {os.path.basename(fp)} → {os.path.basename(out_path)}")
     if len(summary_rows) > 1:
         print("\n=== 汇总对比 ===")
-        header = "章 | 语义句 | 重复骨架簇 | 排比簇 | 平均σ | 平均MSSD | 的密度 | flags"
+        header = "章 | 语义句 | 重复骨架簇 | 排比簇 | 章CV | 平均σ | 平均MSSD | 的密度 | flags"
         print(header)
         print("-" * len(header))
         for r in summary_rows:
             de_density = r["'的'密度"]
-            print(f"{r['章']} | {r['语义句']} | {r['重复骨架簇']} | {r['排比簇']} | {r['平均σ']} | {r['平均MSSD']} | {de_density} | {r['flags']}")
+            print(f"{r['章']} | {r['语义句']} | {r['重复骨架簇']} | {r['排比簇']} | {r['章CV']} | {r['平均σ']} | {r['平均MSSD']} | {de_density} | {r['flags']}")
 
 
 if __name__ == "__main__":
