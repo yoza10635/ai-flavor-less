@@ -93,6 +93,14 @@ DEFAULT_PROFILES = {
         "tpl_thresh": 5,       # 模板重复阈值（通用：5 次才算显著）
         "rep_ratio": 0.10,     # 重复骨架句占全句 >10% 视为句式单调（相对自身规模）
         "de_sto_flag": False,  # 顿号并列"的"不判 flag（通用文体不关注）
+        # ---- 数值阈值层（跨文体）：None/缺失 = 不判该项 ----
+        # 这一层不再由 banlist 罩着——banlist 只管网文规范清单（违禁词/情绪直写/数据行）。
+        # 外部语料基线 profile（新闻/知乎/学术）靠这一层生效，见 profiles/<体裁>.yaml。
+        "cv_thresh": None, "de_density_thresh": None,
+        "tag_thresh": None, "mid_ratio_thresh": None,
+        "lowinfo_thresh": 2,   # 信息停滞段数 > 该值判 flag（2 → 原「≥3 判」等价）
+        "run_thresh": 0,       # 排比簇数 > 该值判 flag（0 = 有即报）
+        "stack_thresh": 0,     # 词性堆叠行数 > 该值判 flag
     },
     "网文": {
         "banlist": True,
@@ -104,6 +112,11 @@ DEFAULT_PROFILES = {
         "tpl_thresh": 3,
         "rep_ratio": 0.06,
         "cv_thresh": None,     # 指标②绝对阈值默认关闭：用 --calibrate 得基线 CV 后手填（宪章§七）
+        # 以下三项原为 banlist 块内的隐式默认值，现显式化以保持行为不变
+        "de_density_thresh": 6,
+        "tag_thresh": 0.30,
+        "mid_ratio_thresh": 0.55,
+        "lowinfo_thresh": 2, "run_thresh": 0, "stack_thresh": 0,
     },
 }
 DEFAULT_PROFILE = "通用"
@@ -293,8 +306,14 @@ def pos_tag(sent, normalize_pn=False):
 
 # 句式模板词对（半同构句式）：骨架指纹要求完全同构会漏掉"不是X而是Y"这类
 # 标记词固定、填充任意的模板重复。检测基于标点句（按句号切，避免逗号劈开模板）。
+#
+# ⚠ 命中条目需根据具体上下文人工核实，不可直接当 AI 味定论：
+#   匹配用 `m1.*?m2`（填充任意），故 ("不是","是") 会把"不是…但是/就是/于是/
+#   只是/还是/要是"等**非模板**句式一并吃进来（如"要是不下雨，不是更好吗"）。
+#   宽口径是刻意选择——de-ai-zh 硬规则第 3 条要求消灭"……不是……是……"否定对比
+#   句式，宁可多报待人工排除；正文若恰有 1 处符合，也不会进报告（进报告阈值 ≥2）。
 TPL_PAIRS = [
-    ("不是", "而是"), ("并非", "而是"), ("不再", "而是"),
+    ("不是", "是"), ("并非", "而是"), ("不再", "而是"),
     ("不仅", "而且"), ("不仅", "还"), ("不仅", "更"),
     ("既", "又"), ("虽然", "但是"), ("虽然", "但"),
     ("一边", "一边"), ("与其", "不如"), ("宁可", "也不"),
@@ -691,6 +710,8 @@ def render_chapter_report(title, paras, l0, tpl, l1, bl, reps, runs, l3, profile
         "sent_count": sum(len(split_semantic_sents(p)) for p in paras),
         "l0": l0, "tpl": tpl, "l1": l1, "bl": bl,
         "reps": reps, "runs": runs, "l3": l3,
+        # 章级 CV 单列：指标②的判据对象（模板里若拿"段内均值 CV"去比 cv_thresh 会指错对象）
+        "chapter_cv": chapter_cv(paras),
         "cfg": cfg or {},
     }
     return _JINJA.get_template("report_template.md.j2").render(**data)
@@ -786,40 +807,52 @@ def summarize(title, paras, l0, tpl, l1, bl, reps, runs, l3, profile, cfg):
     n_reps = sum(1 for r in reps if r["n"] >= 2)
     rep_sent_ratio = sum(r["n"] for r in reps) / sents if sents else 0
     flags = []
+    # 数值阈值统一约定：**实测值 > 阈值 → flag；阈值 null/缺失 → 不判该项。**
+    # （"的"密度/模板等历史口径见下方逐项注释；这一约定让外部语料基线 profile
+    #   可以用 null 精确关闭单项，而不必靠 profile 名硬编码。）
+    def over(val, key, ge=False):
+        th = cfg.get(key)
+        if th is None:
+            return False
+        return val >= th if ge else val > th
+
     # ---- 通用层（跨文体）：统计核心 + 文本内相对异常 ----
-    if n_reps and rep_sent_ratio > cfg["rep_ratio"]:
+    if n_reps and rep_sent_ratio > (cfg.get("rep_ratio") or 1):
         flags.append(f"重复骨架×{n_reps}（占句{rep_sent_ratio:.0%}）")
-    if runs:
+    if over(len(runs), "run_thresh"):
         flags.append(f"排比簇×{len(runs)}")
-    if len(l1["low_info_paras"]) >= 3:
+    if over(len(l1["low_info_paras"]), "lowinfo_thresh"):
         flags.append(f"信息停滞×{len(l1['low_info_paras'])}")
     tpl_total = sum(n for _, n, _ in tpl["tpl_rows"])
-    if tpl_total >= cfg["tpl_thresh"]:
+    if over(tpl_total, "tpl_thresh", ge=True):   # 历史口径：≥ 阈值即报
         flags.append(f"模板×{tpl_total}")
-    if len(l0["stack_rows"]) > cfg.get("stack_thresh", 0):
+    if over(len(l0["stack_rows"]), "stack_thresh"):
         flags.append(f"词性堆叠×{len(l0['stack_rows'])}")
     if cfg["de_long_flag"] and len(l0["de_long"]) >= 3:
         flags.append(f"'的'长链×{len(l0['de_long'])}")
     if cfg.get("de_sto_flag") and len(l0["de_sto"]) >= 1:
         flags.append(f"顿号并列'的'×{len(l0['de_sto'])}")
-    # ---- 文体层（banlist 开启的 profile）：项目规范规则 ----
+    # ---- 数值阈值层（跨文体，与 banlist 解耦）----
+    # 这一层管全部"实测值 vs 绝对阈值"的判据：任一 profile（含外部语料基线
+    # 的 新闻/知乎/学术）只要填了阈值即生效，不受 banlist 影响。
+    # 凭据：宪章 §六「阈值不跨语料迁移」——阈值必须由各自基线经 --calibrate 得出。
+    if over(cv, "cv_thresh"):
+        flags.append(f"句长方差漂移(CV {cv:.2f})")
+    if over(tpl["punct"].get("破折号", 0), "dash_thresh"):
+        flags.append(f"破折号{tpl['punct']['破折号']:.1f}")
+    if over(l0["density"], "de_density_thresh"):
+        flags.append(f"'的'密度{l0['density']:.1f}")
+    if over(bl["tag_ratio"], "tag_thresh"):
+        flags.append(f"对话标签{bl['tag_ratio']:.0%}")
+    if over(bl["mid_ratio"], "mid_ratio_thresh"):
+        flags.append("段落3-4句偏多")
+    # ---- 文体层（banlist 开启的 profile）：项目规范清单 ----
+    # banlist 只管词层清单——违禁词/情绪直写/系统数据行（宪章 §3.3 时敏层）。
     if cfg.get("banlist"):
-        # 宪章指标②：判据用章级 CV（高 → 关注；本语料实测方向，见 L3 段注释）。
-        # 原始 σ 不作判据（实测漂移主导，ONTOLOGY §3.1），仅作平均σ统计值展示。
-        if cfg.get("cv_thresh") and cv > cfg["cv_thresh"]:
-            flags.append(f"句长方差漂移(CV {cv:.2f})")
-        if cfg.get("dash_thresh") and tpl["punct"].get("破折号", 0) > cfg["dash_thresh"]:
-            flags.append(f"破折号{tpl['punct']['破折号']:.1f}")
-        if l0["density"] > cfg.get("de_density_thresh", 6):
-            flags.append(f"'的'密度{l0['density']:.1f}")
         if bl["ban_hits"]:
             flags.append(f"违禁词×{len(bl['ban_hits'])}")
         if bl["emo_hits"]:
             flags.append(f"情绪直写×{len(bl['emo_hits'])}")
-        if bl["tag_ratio"] > cfg.get("tag_thresh", 0.30):
-            flags.append(f"对话标签{bl['tag_ratio']:.0%}")
-        if bl["mid_ratio"] > cfg.get("mid_ratio_thresh", 0.55):
-            flags.append("段落3-4句偏多")
         if bl["data_runs"]:
             flags.append(f"数据行×{len(bl['data_runs'])}")
     return {
@@ -964,10 +997,10 @@ def main():
         l0 = l_intra(paras, cache)
         tpl = l_tpl_punct(paras)
         l1 = l1_stats(sents_all, paras, cache)
-        bl = l_banlist(paras) if PROFILES[profile]["banlist"] else {
-            "ban_hits": [], "emo_hits": [], "tag_ratio": 0, "quote_ratio": 0,
-            "n_quotes": 0, "para_counts": {}, "mid_ratio": 0, "data_runs": [],
-        }
+        # l_banlist 恒定计算：数值阈值层要用它的 tag_ratio/mid_ratio（外部语料基线
+        # profile 的 banlist=false，但仍需这两个比值判对话标签占比/3-4句段占比）。
+        # 清单自身的 flag 只在 banlist=true 时产出，报告 L1.5 节也只在该开关下渲染。
+        bl = l_banlist(paras)
         reps, runs = l2_skeletons(sents_all, cache)
         l3 = l3_rhythm(paras)
         report = render_chapter_report(title, paras, l0, tpl, l1, bl, reps, runs, l3, profile, PROFILES[profile])

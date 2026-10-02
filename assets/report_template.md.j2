@@ -2,7 +2,17 @@
 
 - profile：**{{ profile }}**
 - 段落数：{{ paras_count }}　语义句数：{{ sent_count }}
-- '的'密度：{{ '%.1f'|format(l0.density) }}%（共 {{ l0.n_de }} 处 / {{ l0.n_chars }} 字）
+- '的'密度：{{ '%.1f'|format(l0.density) }}%（共 {{ l0.n_de }} 处 / {{ l0.n_chars }} 字）{% if cfg.de_density_thresh %}（阈值 {{ cfg.de_density_thresh }}）{% endif %}
+
+{%- set ns = namespace(th=[]) -%}
+{%- if cfg.cv_thresh is not none %}{% set ns.th = ns.th + ['章CV ' ~ cfg.cv_thresh] %}{% endif -%}
+{%- if cfg.dash_thresh is not none %}{% set ns.th = ns.th + ['破折号 ' ~ cfg.dash_thresh] %}{% endif -%}
+{%- if cfg.de_density_thresh is not none %}{% set ns.th = ns.th + ["'的'密度 " ~ cfg.de_density_thresh] %}{% endif -%}
+{%- if cfg.tag_thresh is not none %}{% set ns.th = ns.th + ['对话标签 ' ~ cfg.tag_thresh] %}{% endif -%}
+{%- if cfg.mid_ratio_thresh is not none %}{% set ns.th = ns.th + ['3-4句段 ' ~ cfg.mid_ratio_thresh] %}{% endif -%}
+{%- if ns.th %}
+> 本 profile 数值阈值（实测值 **>** 阈值即 flag）：{{ ns.th|join('；') }}
+{% endif -%}
 
 ## L0 句内结构
 
@@ -130,9 +140,8 @@
 （无违禁词 / 情绪直写命中）
 {% endif %}
 
-- 对话标签占比：**{{ '%.0f'|format(bl.tag_ratio * 100) }}%**（{{ bl.n_quotes }} 处引号）{% if cfg.tag_thresh and bl.tag_ratio > cfg.tag_thresh %} ⚠ 超过阈值 {{ '%.0f'|format(cfg.tag_thresh * 100) }}%{% endif %}
 - 引文占比：{{ '%.1f'|format(bl.quote_ratio * 100) }}%
-- 3-4 句段占比：**{{ '%.0f'|format(bl.mid_ratio * 100) }}%**{% if cfg.mid_ratio_thresh and bl.mid_ratio > cfg.mid_ratio_thresh %} ⚠ 偏多（阈值 {{ '%.0f'|format(cfg.mid_ratio_thresh * 100) }}%）{% endif %}
+- 语域提示：本 profile 已开启规范清单（时敏层，结论只作提示，不进合取判据）。
 {% if bl.data_runs %}
 **⚠ 连续系统数据行（≥2 段连续）×{{ bl.data_runs|length }} 组**
 
@@ -140,9 +149,19 @@
 - 段 {{ pids|join('、') }}
 {% endfor %}
 {% endif %}
-{% if not bl.ban_hits and not bl.emo_hits and not bl.data_runs and bl.tag_ratio == 0 and bl.mid_ratio == 0 %}
+{% if not bl.ban_hits and not bl.emo_hits and not bl.data_runs %}
 （规范清单各项均未命中）
 {% endif %}
+
+{% endif %}
+{% if cfg.banlist or cfg.tag_thresh is not none or cfg.mid_ratio_thresh is not none %}
+## 对话标签与段落句数
+
+- 对话标签占比：**{{ '%.0f'|format(bl.tag_ratio * 100) }}%**（{{ bl.n_quotes }} 处引号）{% if cfg.tag_thresh is not none and bl.tag_ratio > cfg.tag_thresh %} ⚠ 超过阈值 {{ '%.0f'|format(cfg.tag_thresh * 100) }}%{% elif cfg.tag_thresh is none %} （本 profile 未设阈值，仅展示）{% endif %}
+- 3-4 句段占比：**{{ '%.0f'|format(bl.mid_ratio * 100) }}%**{% if cfg.mid_ratio_thresh is not none and bl.mid_ratio > cfg.mid_ratio_thresh %} ⚠ 偏多（阈值 {{ '%.0f'|format(cfg.mid_ratio_thresh * 100) }}%）{% elif cfg.mid_ratio_thresh is none %} （本 profile 未设阈值，仅展示）{% endif %}
+
+> 这两项与规范清单（违禁词/数据行）**分开控制**：外部语料基线 profile 的
+> `banlist: false` 只关掉词层清单，数值阈值仍生效，故此处照常出数。
 
 {% endif %}
 ## L2 句法层（POS 骨架）
@@ -181,9 +200,9 @@
 {% set avg_std = (l3 | map(attribute='std') | list | sum) / (l3 | length) %}
 {% set avg_cv = (l3 | map(attribute='cv') | list | sum) / (l3 | length) %}
 > 宪章指标②用 **CV（σ/mean）**，不用原始 σ（σ 受篇幅混淆，实测漂移 r=-0.771 不可用）。
-> 段内均值 CV = {{ '%.2f'|format(avg_cv) }}（σ 均值 {{ '%.1f'|format(avg_std) }} 仅展示）。
-{% if cfg.cv_thresh and avg_cv > cfg.cv_thresh %}
-> ⚠ 段内均值 CV {{ '%.2f'|format(avg_cv) }} 高于阈值 {{ cfg.cv_thresh }}：句长方差漂移（关注）
+> 章级 CV = {{ '%.2f'|format(chapter_cv) }}（**指标②的判据对象**）｜段内均值 CV = {{ '%.2f'|format(avg_cv) }}（σ 均值 {{ '%.1f'|format(avg_std) }} 仅展示）。
+{% if cfg.cv_thresh and chapter_cv > cfg.cv_thresh %}
+> ⚠ 章级 CV {{ '%.2f'|format(chapter_cv) }} 高于阈值 {{ cfg.cv_thresh }}：句长方差漂移（关注）
 {% endif %}
 {% else %}
 （无可统计段落：每段句数需 ≥3）

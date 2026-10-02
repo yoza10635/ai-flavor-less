@@ -21,6 +21,6 @@
 | [lmscan-feature-audit.md](lmscan-feature-audit.md) | 同路线开源竞品 lmscan（Apache-2.0）24 特征逐条审计：中文双层失效；借算法不借管线 |
 | [storyscope-evolution-assessment.md](storyscope-evolution-assessment.md) | StoryScope 论文（arXiv 2604.03136）可迁移性评估：方向指导性充足、数值零迁移 |
 | [storyscope-dimension-transfer-test.md](storyscope-dimension-transfer-test.md) | 论文 30 特征→10 语义场维度迁移实测：6/10 方向相反，阈值必须自定 |
-| [cross-genre-external-test.md](cross-genre-external-test.md) | 跨体裁外部语料测试（新闻/知乎/学术各 5 篇）：描述层体裁分化、合取判据 0/5 升级；聚合数据见同目录 CSV |
+| [cross-genre-external-test.md](cross-genre-external-test.md) | 跨体裁外部语料测试（新闻/知乎/学术各 5 篇）：描述层体裁分化、合取判据 0/5 升级；聚合数据见同目录 CSV。**该 CSV 已直接接成可用 profile**：`--profile=新闻|知乎|学术`（见仓库根 `profiles/` 与 SKILL.md「外部语料基线」） |
 
 档案文档按「只增不改」维护：结论被后续实验推翻时在文内追加修订注，不重写历史段落。

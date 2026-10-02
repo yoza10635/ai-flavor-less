@@ -36,6 +36,9 @@ python scripts/check.py --cross-chapter ch*.md
 
 # 4. 用已通过的基线章节校准阈值（均值±2σ，人工确认后写入 profiles/<体裁名>.yaml）
 python scripts/check.py --calibrate 已通过章节1.md 已通过章节2.md ...
+
+# 5. 外部语料基线：拿现成的同体裁参照系比（无需自己校准）
+python scripts/check.py --profile=新闻|知乎|学术 稿子.md
 ```
 
 支持 `.md` / `.txt` / `.docx`；报告输出到 `reports/`，多章时附汇总对比表。
@@ -64,9 +67,25 @@ python scripts/check.py --calibrate 已通过章节1.md 已通过章节2.md ...
 AI 味。正式使用时先对同体裁基线跑 `--calibrate`，输出的**可直接粘贴的 yaml 片段**
 确认后存为 `profiles/<体裁名>.yaml`（每体裁一个文件，只写差异项）。
 
+**若没有自己的基线可校**，可直接用仓库自带的外部语料参照系：
+
+```bash
+python scripts/check.py --profile=知乎 稿子.md   # 或 新闻 / 学术
+```
+
+| profile | 语料 | 说明 |
+|---|---|---|
+| `新闻` | 澎湃新闻 5 篇 | 通稿形态参照 |
+| `知乎` | 知乎日报署名作者 5 篇 | 中长文形态参照 |
+| `学术` | 汉斯 OA 论文 5 篇 | **描述层判据刻意关 4 项**（模板/重复骨架/堆叠/信息停滞，体裁惯例会被误判成 AI 味），保留章级 CV 与句内形态项（破折号/'的'密度/对话标签/3-4句段/排比簇） |
+
+阈值 = 均值 + 2σ（n=5，σ 不稳，已在每个 yaml 注释里逐项标注）。它是"像不像这个体裁"
+的参照，**不是 AI 味判决**；判 AI 味仍以同一篇改前改后对照为准。
+
 ## 输出长什么样
 
-真实输出样例（同一工具、两种人类文本，正好说明"flag ≠ AI 味"）：
+真实输出样例（同一工具、两种人类文本，正好说明"flag ≠ AI 味"）。
+**仅作版式示例**——数值为历史快照、**不作为数据参考**，阈值以 `profiles/*.yaml` 注释为准：
 
 - [example-report-clean.md](docs/example-report-clean.md) —— 知乎口语体长文：干净通过，
   仅零星词性堆叠提示；
@@ -94,7 +113,7 @@ L1.5 规范清单（时敏层，仅特定 profile 启用）。
 | [ONTOLOGY.md](ONTOLOGY.md) | **宪章**：定义、成因、指标、合取判据、负面清单、修订四问 |
 | [references/README.md](references/README.md) | 方法规格与实验/证伪档案索引 |
 | [references/detection-layers.md](references/detection-layers.md) | 各层指标细节与阈值语义 |
-| [profiles/](profiles/) | 体裁参数（每体裁一个 yaml；`--calibrate` 后新建） |
+| [profiles/](profiles/) | 体裁参数（每体裁一个 yaml；`通用`/`网文`/`论文` 内置，`新闻`/`知乎`/`学术` 为外部语料基线；`--calibrate` 后可新建） |
 | [CHANGELOG.md](CHANGELOG.md) | 版本修订记录 |
 
 ## 能力边界

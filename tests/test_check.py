@@ -91,10 +91,21 @@ class TestCrossChapterDF:
 class TestLoadProfiles:
     def test_bundled_profiles(self):
         ps = check.load_profiles()
-        assert {"通用", "网文", "论文"} <= set(ps)
+        assert {"通用", "网文", "论文", "新闻", "知乎", "学术"} <= set(ps)
         assert ps["网文"]["cv_thresh"] == 0.864
         # 论文 只写差异项，其余键从"通用"基底继承
         assert ps["论文"]["dialog"] == check.DEFAULT_PROFILES["通用"]["dialog"]
+
+    def test_external_profiles_carry_numeric_thresholds(self):
+        """外部语料基线 profile 的数值阈值必须真的加载进来（否则 profile 是空壳）。"""
+        ps = check.load_profiles()
+        assert ps["知乎"]["cv_thresh"] == 0.6717
+        assert ps["知乎"]["de_density_thresh"] == 4.1413
+        assert ps["新闻"]["cv_thresh"] == 0.9100
+        # 学术体：描述层故意留 null（体裁惯例非 AI 味，见 ONTOLOGY §五）
+        assert ps["学术"]["cv_thresh"] == 0.7402
+        assert ps["学术"]["tpl_thresh"] is None
+        assert ps["学术"]["lowinfo_thresh"] is None
 
     def test_custom_profile_dir(self, tmp_path, monkeypatch):
         pdir = tmp_path / "profiles"
@@ -107,6 +118,86 @@ class TestLoadProfiles:
         assert "散文" in ps
         assert ps["散文"]["tpl_thresh"] == 7
         assert ps["散文"]["banlist"] == check.DEFAULT_PROFILES["通用"]["banlist"]
+
+
+# ------------------------------------------------- 数值阈值层与 banlist 解耦
+
+class TestNumericThresholdLayer:
+    """数值阈值层（CV/破折号/'的'密度/对话标签/3-4句段）不再由 banlist 罩着。
+
+    这是外部语料基线 profile 能生效的前提：它们 banlist=false，
+    但要靠这一层判"是否偏离该体裁的统计形态"。
+    """
+
+    @staticmethod
+    def _run(paras, cfg):
+        sents = [s for p in paras for s in check.split_semantic_sents(p)]
+        cache = check.TokCache()
+        l0 = check.l_intra(paras, cache)
+        tpl = check.l_tpl_punct(paras)
+        l1 = check.l1_stats(sents, paras, cache)
+        bl = check.l_banlist(paras)
+        reps, runs = check.l2_skeletons(sents, cache)
+        l3 = check.l3_rhythm(paras)
+        return check.summarize("t", paras, l0, tpl, l1, bl, reps, runs, l3, "测试", cfg)
+
+    def test_threshold_fires_with_banlist_off(self):
+        """banlist=false 时数值阈值仍生效（外部 profile 的核心契约）。"""
+        paras = ["这是一个非常非常长的句子用来把句子的平均长度显著抬高。"
+                 "短。短。短。短。短。短。短。短。短。短。"]
+        cfg = {**check.DEFAULT_PROFILES["通用"], "banlist": False, "cv_thresh": 0.01}
+        r = self._run(paras, cfg)
+        assert "句长方差漂移" in r["flags"]
+
+    def test_null_threshold_off(self):
+        """阈值 null = 不判该项（学术 profile 关描述层的机制）。"""
+        paras = ["这是很长的第一句用来拉开方差差距的句子。短。短。短。短。短。"]
+        cfg = {**check.DEFAULT_PROFILES["通用"], "banlist": False, "cv_thresh": None}
+        r = self._run(paras, cfg)
+        assert "句长方差漂移" not in r["flags"]
+
+    def test_banlist_still_gates_wordlist(self):
+        """banlist 仍只管词层清单：关掉后违禁词/情绪直写不再 flag。"""
+        paras = ["他心中不禁涌上一阵愤怒。"] + ["这一句是普通句子用来凑数。"] * 6
+        base = {**check.DEFAULT_PROFILES["通用"], "cv_thresh": None}
+        off = self._run(paras, {**base, "banlist": False})
+        assert "违禁词" not in off["flags"] and "情绪直写" not in off["flags"]
+        on = self._run(paras, {**base, "banlist": True, "tpl_thresh": 99, "rep_ratio": 1})
+        assert "违禁词" in on["flags"] or "情绪直写" in on["flags"]
+
+    def test_lowinfo_semantics(self):
+        """lowinfo_thresh：null 不判；数值 n = 超过 n 段才报。"""
+        paras = ["散。走。停。看。坐。" for _ in range(4)]
+        base = {**check.DEFAULT_PROFILES["通用"], "banlist": False}
+        cfg_off = {**base, "lowinfo_thresh": None}
+        assert "信息停滞" not in self._run(paras, cfg_off)["flags"]
+        cfg_hi = {**base, "lowinfo_thresh": 99}
+        assert "信息停滞" not in self._run(paras, cfg_hi)["flags"]
+
+
+# ------------------------------------------------- 报告渲染
+
+class TestReportRender:
+    def test_threshold_line_and_chapter_cv(self, tmp_path):
+        """报告头部要打印数值阈值，且 L3 的判据对象是章级 CV（原模板错比段内均值）。"""
+        fp = tmp_path / "a.md"
+        fp.write_text("# t\n\n" + "\n\n".join(
+            "这是第一句比较长一些的句子。短。这是第三句也不短的句子。短。短。" for _ in range(2)
+        ), encoding="utf-8")
+        title, paras = check.read_chapter(str(fp))
+        sents = [s for p in paras for s in check.split_semantic_sents(p)]
+        cache = check.TokCache()
+        cfg = {**check.DEFAULT_PROFILES["通用"], "cv_thresh": 0.30,
+               "de_density_thresh": 9.9}
+        report = check.render_chapter_report(
+            title, paras, check.l_intra(paras, cache), check.l_tpl_punct(paras),
+            check.l1_stats(sents, paras, cache), check.l_banlist(paras),
+            *check.l2_skeletons(sents, cache), check.l3_rhythm(paras), "测试", cfg)
+        assert "章CV 0.3" in report
+        assert "'的'密度 9.9" in report
+        assert "章级 CV" in report
+        # 判据对象是章级 CV（原模板拿"段内均值 CV"比阈值，指错了对象）
+        assert "高于阈值 0.3" in report
 
 
 # ---------------------------------------------------------------- CLI 冒烟

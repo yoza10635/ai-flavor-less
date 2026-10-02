@@ -1,15 +1,38 @@
-# 本文件已被 profiles/ 目录取代（2026-09-16 起）。
+# 本文件已被 profiles/ 目录取代（2026-09-16 起）。仅作结构说明，**不会被加载**。
 #
 # 现行结构：每体裁一个 yaml，见仓库根 profiles/ 目录：
 #   profiles/通用.yaml   —— 默认，统计核心 + 相对异常
 #   profiles/网文.yaml   —— 叠加网文规范规则 + 网文基线 cv_thresh
 #   profiles/论文.yaml   —— 自定义 profile 结构示例（未校准）
+#   profiles/新闻.yaml   —— 外部语料基线（澎湃新闻 5 篇）
+#   profiles/知乎.yaml   —— 外部语料基线（知乎日报署名作者 5 篇）
+#   profiles/学术.yaml   —— 外部语料基线（汉斯 OA 论文 5 篇；描述层刻意留 null）
 #
 # 加载顺序：内置默认 ← profiles/*.yaml ← profiles.yaml（旧版单文件，仍兼容，
 # 按 当前工作目录 → 仓库根 → scripts/ 顺序查找）。
-#
 # 新增体裁的正规流程：
 #   1. python scripts/check.py --calibrate 基线1.md 基线2.md ...（同体裁已评审文本）
 #   2. 按输出"建议阈值"（均值±2σ）新建 profiles/<体裁名>.yaml，只写差异项
 #   3. python scripts/check.py --profile=<体裁名> 待检文件.md
 # 阈值不跨语料迁移（宪章 §六）。
+#
+# ── 配置项分两层（2026-09 拆分，勿混）────────────────────────────────
+#
+# ① 数值阈值层：逐项独立，null/缺失 = 不判该项，**实测值 > 阈值 → flag**。
+#    不受 banlist 影响——外部语料基线 profile 全是 banlist: false，靠这一层生效。
+#      cv_thresh            章级 CV（指标②）
+#      dash_thresh          破折号 次/千字
+#      de_density_thresh    '的'密度 %（'的'数 / 逐段拼接后的长度，剔除段落间空行；
+#                           与 check.py 的 n_chars 同口径，勿换含空白/汉字分母）
+#      tag_thresh           对话标签占比
+#      mid_ratio_thresh     3-4 句段占比
+#      tpl_thresh           模板词对命中总数（唯一按 ≥ 比的项）
+#      rep_ratio            重复骨架句占全句比例
+#      stack_thresh         词性堆叠行数
+#      lowinfo_thresh       信息停滞段数
+#      run_thresh           排比簇数
+#
+# ② 文体清单层：单个 banlist 开关，管时敏层词表（违禁词/情绪直写/数据行）。
+#      banlist / dialog / dataline / de_long_flag / de_sto_flag
+#
+# 拆前数值阈值也在 banlist 块内，banlist: false 的体裁填了阈值也不生效。
