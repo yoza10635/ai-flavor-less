@@ -5,7 +5,12 @@
 
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
-## [Unreleased]
+## [0.2.0] - 2026-10-02
+
+把跨体裁外部语料测试的聚合结果接成三档可直接调用的 profile（`--profile=新闻|知乎|学术`），
+为此拆开了 profile 配置的两层开关粒度（数值阈值层与文体清单层）；并补齐两个统计/补充检测
+脚本、修复报告模板一处指错判据对象的缺陷。发布前做了一轮全量 review，6 处文档与实配脱节
+的问题一并修正（代码本身无误，均为表述层）。
 
 ### Fixed
 - **'的'密度**分母**文档标错**（push 前 review 抓出）：SKILL.md／`check_draft_stats.py`／
@@ -123,3 +128,5 @@
 - 定位为**作者自查校准器**，请勿用于评判他人作品。
 
 [0.1.0]: https://github.com/yoza10635/ai-flavor-less/releases/tag/v0.1.0
+[0.2.0]: https://github.com/yoza10635/ai-flavor-less/releases/tag/v0.2.0
+[Unreleased]: https://github.com/yoza10635/ai-flavor-less/compare/v0.2.0...HEAD
